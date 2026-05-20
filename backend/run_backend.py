@@ -60,15 +60,21 @@ def check_and_start_ollama():
         print(f"[Ollama] Found ollama.exe at: {ollama_path}")
         print("[Ollama] Launching Ollama in background...")
         try:
-            # 창 없이 백그라운드로 실행
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
+            # 윈도우의 경우 CREATE_NO_WINDOW 및 STARTUPINFO 설정으로 완벽히 창을 감춥니다.
+            creationflags = 0
+            startupinfo = None
+            if sys.platform == "win32":
+                creationflags = 0x08000000  # CREATE_NO_WINDOW
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0  # SW_HIDE
             
+            # PyInstaller 환경 하의 윈도우 핸들 에러 방지를 위해 stdin/stdout/stderr를 모두 DEVNULL로 리디렉션
             subprocess.Popen(
                 [ollama_path, "serve"],
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+                creationflags=creationflags,
                 startupinfo=startupinfo,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
@@ -84,6 +90,8 @@ def check_and_start_ollama():
             return False
         except Exception as e:
             print(f"[Error] Failed to start Ollama: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     else:
         print("[Ollama] ollama.exe not found on this system. Please make sure Ollama is installed.")
