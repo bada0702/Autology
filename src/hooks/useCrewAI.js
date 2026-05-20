@@ -1,8 +1,7 @@
 import { useState, useRef, useCallback, useContext } from 'react';
 import GraphContext from '../context/GraphContext';
 
-const isDev = import.meta.env.DEV;
-const BACKEND = isDev ? 'http://localhost:8000' : window.location.origin;
+const BACKEND = 'http://localhost:8000';
 
 const INITIAL_AGENTS = [
   { name: 'Research Agent',    emoji: '🔍', status: 'pending', message: '', preview: '' },
@@ -56,9 +55,7 @@ export function useCrewAI() {
     }
 
     // Connect WebSocket
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = isDev ? 'localhost:8000' : window.location.host;
-    const ws = new WebSocket(`${wsProto}//${wsHost}/ws/crew/${jobId}`);
+    const ws = new WebSocket(`ws://localhost:8000/ws/crew/${jobId}`);
     wsRef.current = ws;
 
     ws.onmessage = (evt) => {
