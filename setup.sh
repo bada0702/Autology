@@ -49,6 +49,21 @@ backend/venv/bin/python -m pip install --upgrade pip
 echo "[Backend] requirements.txt를 통해 라이브러리를 설치하는 중..."
 backend/venv/bin/pip install -r backend/requirements.txt
 
+# 4. Node.js 확인 및 frontend npm 패키지 설치
+echo ""
+echo "==================================================="
+echo " Autology Frontend Setup"
+echo "==================================================="
+echo "[Frontend] Node.js 설치 확인 중..."
+if ! command -v node &>/dev/null; then
+    echo "[Error] Node.js가 설치되어 있지 않거나 PATH에 추가되지 않았습니다."
+    echo "https://nodejs.org 에서 Node.js를 설치한 후 다시 실행해주세요."
+    exit 1
+fi
+
+echo "[Frontend] frontend 의존성 라이브러리를 설치하는 중 (npm install)..."
+npm install
+
 echo ""
 echo "==================================================="
 echo " 설치가 성공적으로 완료되었습니다!"

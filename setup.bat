@@ -69,6 +69,28 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: 4. Check Node.js and install npm dependencies
+echo.
+echo ===================================================
+echo  Autology Frontend Setup
+echo ===================================================
+echo [Frontend] Checking Node.js installation...
+node --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [Error] Node.js is not installed or not in PATH.
+    echo Please install Node.js (which includes npm) from https://nodejs.org and try again.
+    pause
+    exit /b 1
+)
+
+echo [Frontend] Installing frontend dependencies (npm install)...
+call npm install
+if errorlevel 1 (
+    echo [Error] Failed to install frontend dependencies.
+    pause
+    exit /b 1
+)
+
 echo.
 echo ===================================================
 echo  Setup Completed Successfully!
