@@ -8,10 +8,13 @@ import json
 import uuid
 from typing import Any, Dict
 
+import os
+import sys
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from models.job import Job, JobStatus, AgentStatus
@@ -275,6 +278,94 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     finally:
         if job_id in ws_connections and websocket in ws_connections[job_id]:
             ws_connections[job_id].remove(websocket)
+
+
+# ── Ollama Generic Proxy ─────────────────────────────────────────────
+
+@app.api_route("/ollama-proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"])
+async def ollama_proxy(path: str, request: Request):
+    """
+    프론트엔드가 요청하는 Ollama API를 중계합니다.
+    Header의 X-Ollama-Target 값을 타겟 주소로 삼고, path로 요청을 전달합니다.
+    """
+    target_base = request.headers.get("x-ollama-target", "http://localhost:11434")
+    url = f"{target_base.rstrip('/')}/{path}"
+    
+    # 전달받은 헤더 복사 및 호스트 헤더 정리
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers.pop("x-ollama-target", None)
+    
+    # 쿼리 파라미터 유지
+    query_params = dict(request.query_params)
+    
+    # 바디 읽기
+    body = await request.body()
+    
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            is_streaming = False
+            try:
+                if body:
+                    is_streaming = json.loads(body).get("stream", False)
+            except Exception:
+                pass
+            
+            if is_streaming:
+                async def stream_gen():
+                    async with client.stream(
+                        request.method,
+                        url,
+                        params=query_params,
+                        content=body,
+                        headers=headers
+                    ) as resp:
+                        async for chunk in resp.aiter_bytes():
+                            yield chunk
+                return StreamingResponse(stream_gen(), media_type="application/x-ndjson")
+            else:
+                resp = await client.request(
+                    request.method,
+                    url,
+                    params=query_params,
+                    content=body,
+                    headers=headers
+                )
+                return StreamingResponse(
+                    [resp.content],
+                    status_code=resp.status_code,
+                    media_type=resp.headers.get("content-type", "application/json")
+                )
+    except Exception as e:
+        raise HTTPException(502, f"Ollama 프록시 요청 실패: {e}")
+
+
+# ── React Frontend Static Files Serving ──────────────────────────────
+
+# PyInstaller 리소스 경로 탐색
+if getattr(sys, 'frozen', False):
+    base_path = sys._MEIPASS
+else:
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
+dist_path = os.path.join(base_path, "dist")
+if not getattr(sys, 'frozen', False):
+    dist_path = os.path.join(os.path.dirname(base_path), "dist")
+
+if os.path.exists(dist_path):
+    assets_dir = os.path.join(dist_path, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+    
+    @app.get("/{catchall:path}")
+    async def serve_spa(catchall: str):
+        if catchall.startswith("api/") or catchall.startswith("ws/") or catchall.startswith("health") or catchall.startswith("ollama"):
+            raise HTTPException(status_code=404)
+        
+        file_path = os.path.join(dist_path, catchall)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(dist_path, "index.html"))
 
 
 if __name__ == "__main__":

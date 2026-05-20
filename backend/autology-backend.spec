@@ -5,8 +5,16 @@ a = Analysis(
     ['run_backend.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=['uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan', 'uvicorn.lifespan.on', 'fastapi', 'pydantic', 'starlette', 'anyio', 'anyio.from_thread'],
+    datas=[('../dist', 'dist')],
+    hiddenimports=[
+        'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 
+        'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 
+        'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto', 
+        'uvicorn.lifespan', 'uvicorn.lifespan.on', 'fastapi', 'pydantic', 
+        'starlette', 'anyio', 'anyio.from_thread',
+        'crewai', 'langchain_community', 'langchain_ollama', 'rdflib', 'pyshacl',
+        'sqlite3'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
