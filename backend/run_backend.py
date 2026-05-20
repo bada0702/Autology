@@ -2,10 +2,16 @@ import sys
 import os
 import subprocess
 import shutil
-import urllib.request
+import socket
 import time
 import threading
 import webbrowser
+
+# 출력 버퍼링 해제 (로그 실시간 확인용)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(line_buffering=True)
 
 # PyInstaller 번들 경로 처리
 if getattr(sys, 'frozen', False):
@@ -17,11 +23,9 @@ import uvicorn
 
 def is_ollama_running():
     try:
-        # 11434 포트로 간단한 헬스체크
-        with urllib.request.urlopen("http://127.0.0.1:11434/", timeout=2) as response:
-            # ollama는 정상 작동 시 보통 200 OK 또는 404 Not Found(API 미정의 경로)를 줍니다.
-            # 어떤 형태로든 연결 수립 및 응답이 오면 실행 중인 것으로 판정합니다.
-            return response.status in (200, 404)
+        # socket을 이용한 로컬 포트 11434 직접 연결 시도 (프록시의 영향을 받지 않음)
+        with socket.create_connection(("127.0.0.1", 11434), timeout=1.0):
+            return True
     except Exception:
         return False
 
