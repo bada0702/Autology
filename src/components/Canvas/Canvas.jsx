@@ -166,11 +166,13 @@ export default function Canvas() {
     if (!isBackground) return;
 
     const { x, y } = toWorld(e.clientX, e.clientY);
+    const defaultCount = state.nodes.filter(n => /^new concept(\s+\d+)?$/i.test(n.label)).length;
+    const newLabel = defaultCount === 0 ? 'New Concept' : `New Concept ${defaultCount + 1}`;
     dispatch({
       type: 'ADD_NODE',
       payload: {
         id: `node_${Date.now()}`,
-        label: 'New Concept',
+        label: newLabel,
         type: 'Class',
         x: x - NODE_W / 2,
         y: y - NODE_H / 2,

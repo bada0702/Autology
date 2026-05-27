@@ -118,8 +118,12 @@ function graphReducer(state, action) {
       const tgtNode = state.nodes.find(n => n.id === tgt);
 
       // Same label → merge src into tgt instead of creating an edge
+      // Skip merge if either node still has a default generated label
+      const isDefault = (label) => /^new concept(\s+\d+)?$/i.test(label.trim());
       if (
         srcNode && tgtNode &&
+        !isDefault(srcNode.label) &&
+        !isDefault(tgtNode.label) &&
         srcNode.label.toLowerCase().trim() === tgtNode.label.toLowerCase().trim()
       ) {
         const seenKeys = new Set(

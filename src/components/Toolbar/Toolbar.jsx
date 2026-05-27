@@ -77,11 +77,13 @@ export default function Toolbar({ onOpenChat }) {
   const handleAddNode = () => {
     const cx = ((-state.pan.x + 400) / state.zoom);
     const cy = ((-state.pan.y + 300) / state.zoom);
+    const defaultCount = state.nodes.filter(n => /^new concept(\s+\d+)?$/i.test(n.label)).length;
+    const newLabel = defaultCount === 0 ? 'New Concept' : `New Concept ${defaultCount + 1}`;
     dispatch({
       type: 'ADD_NODE',
       payload: {
         id: `node_${Date.now()}`,
-        label: 'New Concept',
+        label: newLabel,
         type: 'Class',
         x: cx,
         y: cy,
