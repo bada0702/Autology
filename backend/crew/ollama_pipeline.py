@@ -19,7 +19,7 @@ from models.job import Job, JobStatus, AgentStatus
 from memory.store import memory_store
 
 OLLAMA_BASE  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e2b")
 
 MAX_REFINEMENT_ITER = 2   # Maximum critic→editor refinement cycles
 

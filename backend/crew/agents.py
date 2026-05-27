@@ -1,14 +1,13 @@
 """CrewAI Agent definitions for ontology extraction pipeline."""
 
-from crewai import Agent
-from langchain_ollama import ChatOllama
+from crewai import Agent, LLM
 import os
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e2b")
 OLLAMA_BASE  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def _llm():
-    return ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE, temperature=0.2)
+    return LLM(model=f"ollama/{OLLAMA_MODEL}", base_url=OLLAMA_BASE)
 
 def make_research_agent() -> Agent:
     return Agent(
