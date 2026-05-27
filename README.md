@@ -1,114 +1,180 @@
-# Autology (오톨로지)
+# Autology
 
-AI 멀티 에이전트(CrewAI)와 시맨틱 웹 기술을 결합한 **지능형 온톨로지 생성 및 시각화 플랫폼**입니다. 사용자가 특정 주제를 입력하면, 백엔드의 AI 에이전트들이 웹 리서치부터 개체 추출, 관계 매핑, 검증을 거쳐 구조화된 온톨로지(Ontology) 그래프를 생성하고 프론트엔드 캔버스에 시각화합니다.
+> `autos (자기 자신) + logos (말·이성)` — **스스로 지식을 정의하는 지능형 온톨로지 그래프 빌더**
 
----
-
-## 🚀 주요 기능
-
-### 1. AI 멀티 에이전트 파이프라인 (CrewAI & Ollama)
-로컬 LLM(Ollama 등)을 연동하여 5단계의 독립적인 에이전트가 협업해 온톨로지를 설계합니다.
-* **Research Agent**: 입력된 주제와 관련된 웹 자료를 수집하고 기초 정보를 분석합니다.
-* **Extraction Agent**: 수집된 텍스트에서 주요 개념을 분석하여 Class, Instance, Literal로 분류합니다.
-* **Relation Agent**: 추출된 개념들 간의 세부 관계(`is-a`, `part-of`, `has-value`, `related-to` 등)를 정의합니다.
-* **Validation Agent**: 온톨로지의 순환 참조, 모순, 누락된 관계 등을 품질 검증합니다.
-* **Editor Agent**: 검증 결과를 바탕으로 Autology 캔버스 규격에 최적화된 최종 온톨로지 JSON 데이터를 생성합니다.
-
-### 2. 시맨틱 웹 표준 규격 연동 (RDFLib & pySHACL)
-단순한 시각화를 넘어, 표준 시맨틱 웹 기술과의 호환성을 갖추고 있습니다.
-* **RDF 가져오기/내보내기**: 생성된 온톨로지를 Turtle, RDF/XML, JSON-LD 등 표준 포맷으로 상호 변환하고 다운로드할 수 있습니다.
-* **SPARQL 쿼리 엔진**: 온톨로지 데이터를 대상으로 직접 SPARQL SELECT 쿼리를 작성하고 실행할 수 있습니다.
-* **SHACL 검증**: SHACL Shape 데이터 모델을 활용해 생성된 온톨로지 그래프가 논리적/스키마 제약 조건에 부합하는지 유효성 검사를 제공합니다.
-
-### 3. 인터랙티브 웹 시각화 캔버스 (React)
-* 생성된 온톨로지 노드(Class, Instance, Literal)와 엣지(관계)를 반응형 그래프로 렌더링합니다.
-* 마우스 드래그, 줌 인/아웃, 노드 세부 정보 편집 및 노출 기능을 제공합니다.
-* WebSocket 연결을 통해 백엔드 AI 에이전트들의 실시간 추론 상태(생각, 실행 로그)를 모니터링할 수 있습니다.
-
-### 4. 크로스 플랫폼 데스크톱 지원 (Tauri)
-* 웹 브라우저 실행 환경 외에도 Tauri 프레임워크 기반의 가볍고 빠른 네이티브 데스크톱 앱 빌드를 지원합니다.
+AI 멀티 에이전트(CrewAI)와 시맨틱 웹 기술을 결합한 **인터랙티브 온톨로지 생성·시각화 플랫폼**입니다.  
+주제를 입력하면 백엔드 AI 에이전트들이 리서치 → 개체 추출 → 관계 매핑 → 검증 → 편집의 5단계 파이프라인으로 온톨로지 그래프를 자동 생성하고, React 캔버스에 실시간으로 시각화합니다.
 
 ---
 
-## 🛠 기술 스택
+## 주요 기능
 
-### Frontend
-* **Core**: React, Vite
-* **Styling**: TailwindCSS, Framer Motion (애니메이션), Lucide React (아이콘)
-* **Desktop Wrapper**: Tauri
+### 1. AI 멀티 에이전트 파이프라인 (CrewAI + Ollama)
+로컬 LLM(Ollama)을 연동해 5개의 독립 에이전트가 협업합니다.
 
-### Backend
-* **Core**: FastAPI, Uvicorn
-* **AI Orchestration**: CrewAI, LangChain Ollama, WebSockets
-* **Semantic Engine**: RDFLib, pySHACL
+| 에이전트 | 역할 |
+|----------|------|
+| **Research Agent** | 입력 주제 관련 웹 자료 수집 및 기초 분석 |
+| **Extraction Agent** | 텍스트에서 Class / Instance / Literal 분류 추출 |
+| **Relation Agent** | `is-a`, `part-of`, `has-value`, `related-to` 등 관계 정의 |
+| **Validation Agent** | 순환 참조, 모순, 누락 관계 품질 검증 |
+| **Editor Agent** | 캔버스 규격에 최적화된 최종 온톨로지 JSON 생성 |
+
+### 2. 인터랙티브 그래프 캔버스 (React + SVG)
+- 3계층 고정 구조: **Class**(파랑) → **Instance**(초록) → **Literal**(노랑)
+- 드래그·줌·패닝, 노드 인라인 편집, 미니맵 내비게이션
+- WebSocket으로 AI 에이전트 실시간 추론 로그 모니터링
+- 엑셀(xlsx) / JSON / RDF 등 다양한 포맷으로 내보내기
+
+### 3. 시맨틱 웹 워크벤치 (RDFLib + pySHACL)
+- **RDF 가져오기/내보내기**: Turtle, RDF/XML, JSON-LD 상호 변환
+- **SPARQL 쿼리 엔진**: 온톨로지 데이터에 직접 SELECT 쿼리 실행
+- **SHACL 검증**: 스키마 제약 조건 유효성 검사
+- **코드 에디터 패널**: OWL/Turtle 직접 편집 지원
+
+### 4. 규칙 엔진 & 워크플로
+- 그래프 추론 규칙 정의 및 자동 적용
+- 워크플로 패널로 멀티스텝 AI 작업 파이프라인 구성
+- 속성 패널에서 노드/엣지 메타데이터 상세 편집
+
+### 5. 크로스 플랫폼 배포
+- 웹 브라우저(개발 서버) 및 **Tauri** 기반 네이티브 데스크톱 앱 빌드 지원
+- Windows용 원클릭 실행 스크립트(`start.bat`) 포함
 
 ---
 
-## 💻 실행 방법
+## 기술 스택
+
+| 영역 | 기술 |
+|------|------|
+| **Frontend** | React 18, Vite 4, Framer Motion, Lucide React, Inter/Outfit 폰트 |
+| **Desktop** | Tauri |
+| **Backend** | FastAPI, Uvicorn, WebSocket |
+| **AI Orchestration** | CrewAI, LangChain Ollama |
+| **Semantic Engine** | RDFLib, pySHACL |
+| **데이터 소스** | BeautifulSoup4, Wikipedia-API |
+| **파일 처리** | xlsx, pdfjs, papaparse, mammoth |
+
+---
+
+## 실행 방법
 
 ### 사전 요구사항
-* Node.js (v18 이상 권장)
-* Python (v3.10 이상 권장)
-* Ollama (백엔드 기본 설정 모델: `gemma4:31b-cloud` 또는 사용 환경에 맞춰 환경 변수 수정 필요)
+- **Node.js** v18 이상
+- **Python** v3.10 이상
+- **Ollama** 설치 및 실행 중 (기본 모델: `gemma3:27b` 또는 `.env`에서 변경)
 
-### 1단계: 초기 설정 및 의존성 설치 (최초 1회 실행)
-프로젝트 실행 전에 개발 환경(백엔드 Python 가상환경 및 프론트엔드 npm 패키지)을 설정해야 합니다.
+### 1단계: 최초 설치
 
-* **Windows**: `setup.bat` 파일을 더블 클릭하거나 터미널에서 실행합니다.
-* **macOS/Linux**: 터미널에서 `./setup.sh`를 실행합니다.
-
-### 2단계: 애플리케이션 실행
-설치가 완료되면 아래 스크립트를 실행하여 백엔드(FastAPI)와 프론트엔드(Vite) 개발 서버를 시작합니다.
-
-* **Windows**: `start.bat` 파일을 더블 클릭하거나 터미널에서 실행합니다.
-* **macOS/Linux**: 터미널에서 `./start.sh`를 실행합니다.
-
-#### 1. Backend 실행
 ```bash
-cd backend
+# Windows
+setup.bat
 
-# 가상환경 생성 및 패키지 설치
-python -m venv venv
-venv\Scripts\activate  # Windows
-source venv/bin/activate  # macOS/Linux
-pip install -r requirements.txt
-
-# 서버 구동
-uvicorn main:app --reload --port 8000
+# macOS / Linux
+./setup.sh
 ```
-* **백엔드 API 주소**: `http://localhost:8000`
-* **API 문서 (Swagger)**: `http://localhost:8000/docs`
 
-#### 2. Frontend 실행
+백엔드 Python 가상환경 생성 및 npm 패키지를 자동으로 설치합니다.
+
+### 2단계: 실행
+
 ```bash
-# 의존성 패키지 설치
-npm install
+# Windows (백엔드 + 프론트엔드 동시 실행)
+start.bat
 
-# 개발 서버 실행
+# macOS / Linux
+./start.sh
+```
+
+| 서비스 | 주소 |
+|--------|------|
+| 프론트엔드 | http://localhost:5173 |
+| 백엔드 API | http://localhost:8000 |
+| API 문서 (Swagger) | http://localhost:8000/docs |
+
+### 수동 실행
+
+```bash
+# 백엔드
+cd backend
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # macOS/Linux
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# 프론트엔드 (별도 터미널)
+npm install
 npm run dev
 ```
-* **프론트엔드 접속 주소**: `http://localhost:5173`
 
 ---
 
-## 📂 프로젝트 구조
+## 프로젝트 구조
 
-```text
-Autology/
-├── backend/                # FastAPI 백엔드 애플리케이션
-│   ├── crew/               # CrewAI 에이전트 및 태스크 정의
-│   ├── models/             # API 요청/응답 스키마 및 잡 모델
-│   ├── semantic.py         # RDFLib, SPARQL, SHACL 비즈니스 로직
-│   ├── main.py             # FastAPI 라우터 및 WebSocket 엔드포인트
-│   └── requirements.txt    # 백엔드 라이브러리 목록
-├── src/                    # React 프론트엔드 소스 코드
-│   ├── components/         # UI 및 그래프 캔버스 컴포넌트
-│   ├── context/            # 전역 상태 관리 컨텍스트
-│   ├── hooks/              # 커스텀 훅
-│   ├── App.jsx             # 메인 앱 컴포넌트
-│   └── index.css           # 글로벌 스타일 정의
-├── package.json            # npm 설정 및 종속성
-├── vite.config.js          # Vite 번들러 설정
-├── start.bat / start.sh    # 통합 개발 서버 실행 스크립트
-└── .gitignore              # Git 무시 파일 목록 (추가됨)
 ```
+Autology/
+├── backend/                        # FastAPI 백엔드
+│   ├── crew/                       # CrewAI 에이전트 파이프라인
+│   │   ├── agents.py               # 5개 에이전트 정의
+│   │   ├── tasks.py                # 에이전트 태스크
+│   │   ├── orchestrator.py         # 파이프라인 오케스트레이터
+│   │   ├── ollama_pipeline.py      # Ollama 직접 연동 파이프라인
+│   │   └── tools/search.py         # 웹 검색 툴
+│   ├── models/                     # Pydantic 스키마
+│   │   ├── ontology.py
+│   │   └── job.py
+│   ├── memory/store.py             # 작업 상태 메모리 스토어
+│   ├── semantic.py                 # RDFLib / SPARQL / SHACL 로직
+│   ├── main.py                     # FastAPI 라우터 & WebSocket
+│   ├── run_backend.py              # 백엔드 실행 진입점
+│   └── requirements.txt
+├── src/                            # React 프론트엔드
+│   ├── components/
+│   │   ├── Canvas/                 # SVG 오버레이 그래프 캔버스
+│   │   ├── Nodes/ & Edges/         # 노드·엣지 렌더러
+│   │   ├── MiniMap/                # 미니맵 내비게이션
+│   │   ├── Toolbar/                # 상단 툴바
+│   │   ├── Inspector/              # 그래프 인스펙터
+│   │   ├── Evaluator/              # 그래프 평가 패널
+│   │   ├── SemanticWorkbench/      # RDF/SPARQL/SHACL 워크벤치
+│   │   ├── CodeEditor/             # OWL/Turtle 코드 에디터
+│   │   ├── CrewPanel/              # AI 에이전트 모니터링 패널
+│   │   └── Panels/                 # Chat / Property / Rule / Workflow
+│   ├── context/                    # React Context 전역 상태
+│   ├── hooks/                      # 커스텀 훅 (Ollama, CrewAI, KG-RAG 등)
+│   ├── utils/                      # 파일 파싱, 레이아웃, 내보내기 유틸
+│   └── constants/nodeTypes.js      # 노드 타입 상수
+├── public/
+├── index.html
+├── package.json
+├── vite.config.js
+├── setup.bat / setup.sh            # 최초 설치 스크립트
+├── start.bat / start.sh            # 통합 실행 스크립트
+└── stop.bat / stop.sh              # 서버 종료 스크립트
+```
+
+---
+
+## 온톨로지 노드 타입
+
+| 타입 | 색상 | 설명 | 예시 |
+|------|------|------|------|
+| **Class** | 파랑 | 추상 개념·범주 | 사람, 도시, 조직 |
+| **Instance** | 초록 | 실제 개체·객체 | 홍길동, 서울 |
+| **Literal** | 노랑 | 구체적 값·속성 | "1919-03-01", "35세" |
+
+**허용 관계**
+
+```
+Class     → Class     : is-a, part-of, related-to
+Class     → Instance  : has-instance
+Instance  → Instance  : connected, member-of, participated-in
+Instance  → Literal   : has-value, born-on, located-at
+```
+
+---
+
+## 라이선스
+
+MIT
