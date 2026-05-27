@@ -276,7 +276,10 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
         job.status = JobStatus.completed
         await broadcast({"type": "completed", "graph": graph})
 
-    except Exception as exc:
+    except BaseException as exc:
+        import traceback
+        err_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        print(f"[PIPELINE ERROR] {err_msg}\n{traceback.format_exc()}")
         job.status = JobStatus.failed
-        job.error  = str(exc)
-        await broadcast({"type": "error", "message": str(exc)})
+        job.error  = err_msg
+        await broadcast({"type": "error", "message": err_msg})

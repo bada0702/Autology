@@ -57,7 +57,7 @@ async def _run_crewai_pipeline(job: Job, broadcast) -> None:
 
         # ── Agent 0: Research ─────────────────────────────────────
         await notify(0, AgentStatus.running, "인터넷 리서치 중...")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         raw_text = await loop.run_in_executor(None, search_web, topic, 8)
         await notify(0, AgentStatus.done, "리서치 완료", raw_text)
 
@@ -245,10 +245,13 @@ async def _run_crewai_pipeline(job: Job, broadcast) -> None:
         job.status = JobStatus.completed
         await broadcast({"type": "completed", "graph": current_graph})
 
-    except Exception as exc:
+    except BaseException as exc:
+        import traceback
+        err_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        print(f"[PIPELINE ERROR] {err_msg}\n{traceback.format_exc()}")
         job.status = JobStatus.failed
-        job.error  = str(exc)
-        await broadcast({"type": "error", "message": str(exc)})
+        job.error  = err_msg
+        await broadcast({"type": "error", "message": err_msg})
 
 
 def _parse_graph(text: str) -> dict:

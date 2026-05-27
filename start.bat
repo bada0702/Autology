@@ -12,7 +12,7 @@ if %errorlevel% neq 0 (
 )
 
 echo [Backend] Starting...
-start "Autology Backend" cmd /k "cd /d D:\autology\backend && uvicorn main:app --reload --port 8000"
+start "Autology Backend" cmd /k "cd /d D:\autology\backend && uvicorn main:app --port 8000"
 
 echo.
 echo   App       http://localhost:8000
