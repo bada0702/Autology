@@ -52,17 +52,34 @@ def _serper(query: str, api_key: str, k: int) -> Optional[str]:
 
 
 def _wikipedia(query: str) -> str:
-    try:
-        import wikipediaapi
-        wiki = wikipediaapi.Wikipedia("Autology/1.0 (ontology builder)", "en")
-        page = wiki.page(query)
-        if page.exists():
-            return page.summary[:3000]
-        # Try Korean
-        wiki_ko = wikipediaapi.Wikipedia("Autology/1.0 (ontology builder)", "ko")
-        page_ko = wiki_ko.page(query)
-        if page_ko.exists():
-            return page_ko.summary[:3000]
-    except Exception:
-        pass
+    """Wikipedia search → summary, 20s timeout per request, ko → en fallback."""
+    headers = {"User-Agent": "Autology/1.0 (ontology builder; https://github.com/bada0702/Autology)"}
+    for lang in ("ko", "en"):
+        try:
+            with httpx.Client(timeout=20, headers=headers, follow_redirects=True) as client:
+                # 1) 검색 API로 정확한 제목 찾기
+                search_resp = client.get(
+                    f"https://{lang}.wikipedia.org/w/api.php",
+                    params={
+                        "action": "query", "list": "search",
+                        "srsearch": query, "srlimit": 1, "format": "json",
+                    },
+                )
+                if search_resp.status_code != 200:
+                    continue
+                results = search_resp.json().get("query", {}).get("search", [])
+                if not results:
+                    continue
+                title = results[0]["title"]
+
+                # 2) 제목으로 요약 가져오기
+                summary_resp = client.get(
+                    f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{title}",
+                )
+                if summary_resp.status_code == 200:
+                    extract = summary_resp.json().get("extract", "")
+                    if extract:
+                        return f"[{title}]\n{extract[:3000]}"
+        except Exception:
+            pass
     return f"No web search results available for: {query}"
