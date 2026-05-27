@@ -1,0 +1,145 @@
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.canvas-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Center tab bar ───────────────────────────────────────── */
+.center-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: rgba(0,0,0,0.15);
+  padding: 0 8px;
+  gap: 2px;
+}
+
+.center-tab {
+  padding: 7px 16px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: transparent;
+  color: rgba(255,255,255,0.3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+  letter-spacing: 0.02em;
+  margin-bottom: -1px;
+}
+.center-tab:hover { color: rgba(255,255,255,0.6); }
+.center-tab--active {
+  color: #818cf8;
+  border-bottom-color: #818cf8;
+}
+
+/* ── Center content area ─────────────────────────────────── */
+.center-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.center-canvas-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.center-canvas-wrap--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ── Left panel container with tabs ──────────────────────── */
+.left-panel {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,0.07);
+  overflow: hidden;
+}
+
+/* override wf-panel's own border/width since left-panel handles them */
+.left-panel .wf-panel {
+  width: auto;
+  border-right: none;
+  flex: 1;
+}
+
+.left-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+.left-tab {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: transparent;
+  color: rgba(255,255,255,0.22);
+  border: none;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.left-tab:hover { color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.03); }
+.left-tab--active {
+  color: #818cf8;
+  background: rgba(129,140,248,0.07);
+  box-shadow: inset 0 -2px 0 #818cf8;
+}
+
+/* Mobile: sidebar stacks above canvas */
+@media (max-width: 600px) {
+  .app-body {
+    flex-direction: column;
+  }
+
+  .wf-panel {
+    width: 100% !important;
+    max-height: 200px;
+    flex-shrink: 0;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .wf-steps {
+    max-height: 80px;
+    overflow-y: auto;
+  }
+
+  .prop-panel {
+    width: 100% !important;
+    max-height: 260px;
+    flex-shrink: 0;
+    border-left: none;
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .canvas-area {
+    min-height: 200px;
+  }
+}

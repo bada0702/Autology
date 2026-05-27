@@ -1,0 +1,15 @@
+.minimap {
+  position: absolute;
+  bottom: 52px;
+  right: 16px;
+  border-radius: 10px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+.minimap:hover {
+  opacity: 1;
+}

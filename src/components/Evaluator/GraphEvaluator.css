@@ -1,0 +1,348 @@
+/* ── Overlay & Modal ─────────────────────────────────────── */
+.ev-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(5px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ev-modal {
+  width: 680px;
+  max-width: 96vw;
+  max-height: 88vh;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(13,13,22,0.97);
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.ev-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.ev-header-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #eef2ff;
+}
+
+.ev-header-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  margin-left: 4px;
+}
+
+.ev-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: color 0.12s;
+}
+.ev-close:hover { color: #f87171; }
+
+/* ── Body ───────────────────────────────────────────────── */
+.ev-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 0 16px;
+}
+
+/* ── Overview (Radar + Cards) ───────────────────────────── */
+.ev-overview {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 20px 12px;
+}
+
+.ev-radar { flex-shrink: 0; }
+
+.ev-score-cards {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ev-score-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ev-score-card-icon { font-size: 15px; width: 20px; text-align: center; }
+
+.ev-score-card-info {
+  display: flex;
+  flex-direction: column;
+  width: 88px;
+  flex-shrink: 0;
+}
+
+.ev-score-card-label {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.45);
+  line-height: 1.2;
+}
+
+.ev-score-card-val {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.ev-score-card-bar {
+  flex: 1;
+  height: 5px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ev-score-card-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.ev-overall {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.07);
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  font-weight: 600;
+}
+
+/* ── Divider ────────────────────────────────────────────── */
+.ev-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+  margin: 4px 0;
+}
+
+/* ── Section ────────────────────────────────────────────── */
+.ev-section {
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.ev-section-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.ev-section-header:hover { background: rgba(255,255,255,0.03); }
+
+.ev-section-icon { font-size: 15px; }
+
+.ev-section-title {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.75);
+}
+
+.ev-section-chevron { color: rgba(255,255,255,0.25); }
+
+.ev-section-body { padding: 4px 20px 16px; }
+
+.ev-section-header-plain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.75);
+}
+
+/* ── Bar chart ──────────────────────────────────────────── */
+.ev-bar-chart { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+
+.ev-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.ev-bar-label {
+  width: 80px;
+  flex-shrink: 0;
+  color: rgba(255,255,255,0.45);
+  font-size: 10.5px;
+}
+
+.ev-bar-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ev-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+  min-width: 2px;
+}
+
+.ev-bar-val {
+  width: 26px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ev-bar-desc {
+  width: 90px;
+  font-size: 10px;
+  color: rgba(255,255,255,0.28);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Violation list ─────────────────────────────────────── */
+.ev-ok {
+  font-size: 11px;
+  color: #34d399;
+  margin: 0;
+}
+
+.ev-violation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ev-violation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 7px;
+}
+.ev-violation--error { background: rgba(248,113,113,0.1); color: #fca5a5; }
+.ev-violation--warn  { background: rgba(251,191,36,0.08);  color: #fcd34d; }
+
+.ev-violation-icon  { font-size: 11px; font-weight: 700; }
+.ev-violation-rule  { flex: 1; }
+.ev-violation-count { font-weight: 700; }
+
+/* ── Score ring ─────────────────────────────────────────── */
+.ev-ring { overflow: visible; }
+
+/* ── Radar SVG ──────────────────────────────────────────── */
+.ev-radar text { font-family: system-ui, sans-serif; }
+
+/* ── Hints ──────────────────────────────────────────────── */
+.ev-token-hint {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  margin: 6px 0 0;
+  line-height: 1.6;
+}
+.ev-token-hint strong { color: rgba(255,255,255,0.6); }
+
+/* ── LLM Panel ──────────────────────────────────────────── */
+.ev-llm { padding: 6px 20px 12px; }
+
+.ev-llm-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ev-llm-badge {
+  font-size: 10.5px;
+  color: #34d399;
+}
+
+.ev-llm-model {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.3);
+  flex: 1;
+}
+
+.ev-llm-btn {
+  padding: 5px 14px;
+  border-radius: 7px;
+  border: 1px solid rgba(129,140,248,0.4);
+  background: rgba(129,140,248,0.12);
+  color: #818cf8;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.12s;
+}
+.ev-llm-btn:hover:not(:disabled) { background: rgba(129,140,248,0.22); }
+.ev-llm-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ev-llm-hint {
+  font-size: 11px;
+  color: rgba(255,255,255,0.25);
+  margin: 0;
+}
+
+.ev-llm-err {
+  font-size: 11px;
+  color: #f87171;
+  margin: 0 0 8px;
+}
+
+.ev-llm-result {
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(255,255,255,0.75);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,0.06);
+  font-family: system-ui, sans-serif;
+  margin: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.ev-spin { animation: spin 0.8s linear infinite; }
