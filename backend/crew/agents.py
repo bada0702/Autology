@@ -79,3 +79,22 @@ def make_editor_agent() -> Agent:
         verbose=True,
         allow_delegation=False,
     )
+
+def make_critic_agent() -> Agent:
+    return Agent(
+        role="Critic Agent",
+        goal=(
+            "Cross-verify the ontology graph for logical contradictions, "
+            "missing links, and semantic inconsistencies. Produce a structured "
+            "critique with a quality score and concrete refinement suggestions."
+        ),
+        backstory=(
+            "You are a senior ontology peer-reviewer who scrutinizes knowledge graphs "
+            "for logical contradictions (e.g. A is-a B while B is-a A), missing "
+            "essential relationships, incorrect type assignments, and semantic gaps. "
+            "Your critiques are precise and actionable."
+        ),
+        llm=_llm(),
+        verbose=True,
+        allow_delegation=False,
+    )

@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import GraphContext from '../../context/GraphContext';
-import { NODE_COLORS, NODE_BG } from '../../constants/nodeTypes';
+import { getNodeColor, getNodeBg } from '../../constants/nodeTypes';
 import './Node.css';
 
 // Deterministic color from source filename
@@ -24,8 +24,8 @@ const Node = ({ node }) => {
   const isHighlighted = hasHighlight && state.highlightedIds.includes(node.id);
   const isDimmed     = hasHighlight && !isHighlighted;
 
-  const color = NODE_COLORS[node.type] || '#818cf8';
-  const bg    = NODE_BG[node.type]    || 'rgba(129,140,248,0.12)';
+  const color = getNodeColor(node.type);
+  const bg    = getNodeBg(node.type);
 
   const handleMouseDown = (e) => {
     if (e.button !== 0) return;

@@ -12,8 +12,10 @@ FRONTEND_LOG="$SCRIPT_DIR/.pids/frontend.log"
 
 # 이미 실행 중인지 확인
 if [ -f "$FRONTEND_PID_FILE" ] && kill -0 "$(cat "$FRONTEND_PID_FILE")" 2>/dev/null; then
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     echo "[Autology] Already running (frontend PID $(cat "$FRONTEND_PID_FILE"))."
     echo "  Frontend  http://localhost:5173"
+    [ -n "$LOCAL_IP" ] && echo "  Frontend  http://$LOCAL_IP:5173  (LAN)"
     echo "  Backend   http://localhost:8000"
     exit 0
 fi
@@ -28,7 +30,7 @@ if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
 fi
 
-nohup uvicorn main:app --reload --port 8000 > "$BACKEND_LOG" 2>&1 &
+nohup uvicorn main:app --reload --host 0.0.0.0 --port 8000 > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
 echo "[Backend] Started (PID $BACKEND_PID) — log: $BACKEND_LOG"
@@ -41,9 +43,14 @@ FRONTEND_PID=$!
 echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
 echo "[Frontend] Started (PID $FRONTEND_PID) — log: $FRONTEND_LOG"
 
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+
 echo ""
 echo "Servers started:"
 echo "  Frontend  http://localhost:5173"
+if [ -n "$LOCAL_IP" ]; then
+    echo "  Frontend  http://$LOCAL_IP:5173  (LAN)"
+fi
 echo "  Backend   http://localhost:8000"
 echo ""
 echo "Logs:"

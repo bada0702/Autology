@@ -34,6 +34,7 @@ class Job(BaseModel):
         AgentProgress(name="Relation Agent",    emoji="🔗"),
         AgentProgress(name="Validation Agent",  emoji="✅"),
         AgentProgress(name="Editor Agent",      emoji="✏️"),
+        AgentProgress(name="Critic Agent",      emoji="🔎"),
     ])
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None

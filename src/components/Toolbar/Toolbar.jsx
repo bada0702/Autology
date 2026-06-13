@@ -4,7 +4,7 @@ import {
   MousePointer2, Hand, PlusCircle, Trash2, Undo2, Redo2,
   Save, FolderOpen, FilePlus2, Wifi, WifiOff, ChevronDown, X,
   MessageSquare, LayoutGrid, Download, Search, Users, FolderPlus,
-  BarChart2, Database
+  BarChart2, Database, Link2
 } from 'lucide-react';
 import { searchNodes } from '../../utils/graphAnalysis';
 import { hierarchicalLayout, radialLayout, forceLayout } from '../../utils/layout';
@@ -229,6 +229,59 @@ export default function Toolbar({ onOpenChat }) {
     URL.revokeObjectURL(url);
   }
 
+  const handleAutoConnect = () => {
+    const { nodes, edges } = state;
+    const literalNodes = nodes.filter(n => n.type === 'Literal');
+    if (literalNodes.length === 0) {
+      alert('연결할 Literal 노드가 없습니다.\n직위, 소속법인 등의 Literal 노드를 먼저 만들어주세요.');
+      return;
+    }
+
+    const normalize = (v) => v ? v.replace(/[()（）]/g, '').trim() : '';
+
+    const newEdges = [];
+    const now = Date.now();
+
+    nodes.forEach(node => {
+      if (node.type !== 'Instance') return;
+      const props = Array.isArray(node.properties) ? node.properties : [];
+      props.forEach(({ key, value }) => {
+        if (!value) return;
+        const normValue = normalize(value);
+        const normKey   = normalize(key);
+        // 전략1: property value가 Literal label과 일치 (예: 직위:"이사" → Literal "이사")
+        // 전략2: property key가 Literal label과 일치 (예: 소속법인:"..." → Literal "소속법인")
+        const literal =
+          literalNodes.find(l => normalize(l.label) === normValue) ||
+          literalNodes.find(l => normalize(l.label) === normKey);
+        if (!literal) return;
+        const alreadyExists = edges.some(
+          e => e.source === node.id && e.target === literal.id && e.label === key
+        ) || newEdges.some(
+          e => e.source === node.id && e.target === literal.id && e.label === key
+        );
+        if (alreadyExists) return;
+        newEdges.push({
+          id: `auto_${now}_${newEdges.length}`,
+          source: node.id,
+          target: literal.id,
+          label: key,
+          style: 'solid',
+          direction: 'forward',
+          inferred: false,
+        });
+      });
+    });
+
+    if (newEdges.length === 0) {
+      alert('새로 연결할 엣지가 없습니다.\n(이미 모두 연결되어 있거나 매칭되는 Literal 노드가 없습니다)');
+      return;
+    }
+
+    newEdges.forEach(edge => dispatch({ type: 'ADD_EDGE', payload: edge }));
+    alert(`${newEdges.length}개의 엣지가 자동으로 생성되었습니다.`);
+  };
+
   const handleLayout = (type) => {
     if (state.nodes.length === 0) return;
     let positions;
@@ -313,6 +366,12 @@ export default function Toolbar({ onOpenChat }) {
       <div className="toolbar-group">
         <Btn icon={<PlusCircle size={15} />} label="Add Node" onClick={handleAddNode} />
         <Btn icon={<Trash2 size={15} />} label="Delete (Del)" disabled={!canDelete} onClick={handleDelete} danger />
+        <Btn
+          icon={<Link2 size={15} />}
+          label="속성 자동 연결 (Instance → Literal)"
+          onClick={handleAutoConnect}
+          disabled={state.nodes.length === 0}
+        />
       </div>
 
       <div className="toolbar-divider" />

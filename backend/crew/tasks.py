@@ -2,6 +2,22 @@
 
 from crewai import Task
 
+CRITIC_SCHEMA = """
+{
+  "quality_score": 85,
+  "issues": [
+    {"type": "circular_dependency", "description": "A is-a B, B is-a A", "affected_ids": ["n1","n2"]},
+    {"type": "missing_link",        "description": "Entity X should connect to Y", "affected_ids": ["n3"]}
+  ],
+  "refinements": [
+    {"action": "remove_edge",   "edge_id": "e1", "reason": "Creates cycle"},
+    {"action": "add_edge",      "source": "n3", "target": "n5", "label": "part-of", "reason": "Semantically required"},
+    {"action": "change_type",   "node_id": "n4", "new_type": "Instance", "reason": "Concrete entity, not abstract"}
+  ],
+  "approved": true
+}
+"""
+
 GRAPH_JSON_SCHEMA = """
 {
   "nodes": [
@@ -86,6 +102,27 @@ def make_validation_task(agent, extraction_task: Task, relation_task: Task) -> T
         agent=agent,
         context=[extraction_task, relation_task],
     )
+
+def make_critic_task(agent, editor_task: Task, topic: str) -> Task:
+    return Task(
+        description=(
+            f"Perform a cross-verification of the final ontology graph for '{topic}'. "
+            "Check for: "
+            "1) Circular dependencies (A→B→A), "
+            "2) Type inconsistencies (Literal→Literal edges, Class used as leaf value), "
+            "3) Logical contradictions (conflicting relationship directions), "
+            "4) Semantic gaps (important domain concepts missing from the graph), "
+            "5) Orphaned or weakly-connected subgraphs. "
+            f"Output strict JSON only matching the critique schema:\n{CRITIC_SCHEMA}"
+        ),
+        expected_output=(
+            f"A strict JSON critique report matching:\n{CRITIC_SCHEMA}\n"
+            "Set approved=true if quality_score >= 80, false otherwise."
+        ),
+        agent=agent,
+        context=[editor_task],
+    )
+
 
 def make_editor_task(
     agent,

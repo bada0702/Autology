@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useContext, useCallback } from 'react';
-import { Send, X, MessageSquare, Bot, User, Trash2, Sparkles, RefreshCw, StopCircle } from 'lucide-react';
+import { Send, X, MessageSquare, Bot, User, Trash2, Sparkles, RefreshCw, StopCircle, Navigation, EyeOff } from 'lucide-react';
 import { useKGRAG } from '../../hooks/useKGRAG';
 import GraphContext from '../../context/GraphContext';
 import LLMContext from '../../context/LLMContext';
@@ -13,8 +13,9 @@ export default function ChatPanel({ onClose }) {
   const [currentAssistantMessage, setCurrentAssistantMessage] = useState('');
   const { askKG, cancel, isGenerating } = useKGRAG();
   const cancelledRef = useRef(false);
-  const { state: graphState } = useContext(GraphContext);
+  const { state: graphState, dispatch: graphDispatch } = useContext(GraphContext);
   const { state: llmState } = useContext(LLMContext);
+  const [activePathMsgIdx, setActivePathMsgIdx] = useState(null);
 
   // Drag state
   const panelRef   = useRef(null);
@@ -88,6 +89,7 @@ export default function ChatPanel({ onClose }) {
         role: 'assistant',
         content: result.content,
         meta: result.meta,
+        evidencePath: result.evidencePath,
       }]);
     } else if (!cancelledRef.current) {
       setMessages(prev => [...prev, { role: 'assistant', content: '죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다.' }]);
@@ -102,7 +104,22 @@ export default function ChatPanel({ onClose }) {
 
   const clearChat = () => {
     setMessages([{ role: 'assistant', content: '채팅 내역이 초기화되었습니다. 무엇을 도와드릴까요?' }]);
+    clearHighlight();
   };
+
+  const highlightPath = useCallback((msgIdx, evidencePath) => {
+    if (activePathMsgIdx === msgIdx) {
+      clearHighlight();
+      return;
+    }
+    setActivePathMsgIdx(msgIdx);
+    graphDispatch({ type: 'SET_HIGHLIGHT', payload: evidencePath });
+  }, [activePathMsgIdx, graphDispatch]);
+
+  const clearHighlight = useCallback(() => {
+    setActivePathMsgIdx(null);
+    graphDispatch({ type: 'CLEAR_HIGHLIGHT' });
+  }, [graphDispatch]);
 
   const panelStyle = pos
     ? { left: pos.left, top: pos.top, right: 'auto', bottom: 'auto' }
@@ -116,6 +133,11 @@ export default function ChatPanel({ onClose }) {
           <span>지식 그래프 AI 테스트</span>
         </div>
         <div className="chat-header-actions">
+          {activePathMsgIdx !== null && (
+            <button className="chat-icon-btn chat-icon-btn--highlight" onClick={clearHighlight} title="경로 하이라이트 해제">
+              <EyeOff size={14} />
+            </button>
+          )}
           <button className="chat-icon-btn" onClick={clearChat} title="대화 초기화">
             <Trash2 size={14} />
           </button>
@@ -162,6 +184,20 @@ export default function ChatPanel({ onClose }) {
                 </div>
               )}
               {m.content}
+              {m.role === 'assistant' && m.evidencePath?.nodeIds?.length > 0 && graphState.nodes.length > 0 && (
+                <div className="message-evidence-actions">
+                  <button
+                    className={`evidence-path-btn${activePathMsgIdx === i ? ' evidence-path-btn--active' : ''}`}
+                    onClick={() => highlightPath(i, m.evidencePath)}
+                    title="이 답변에 사용된 그래프 경로를 캔버스에 하이라이트합니다"
+                  >
+                    {activePathMsgIdx === i
+                      ? <><EyeOff size={10} /> 경로 해제</>
+                      : <><Navigation size={10} /> 증거 경로 보기 ({m.evidencePath.nodeIds.length}노드)</>
+                    }
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}

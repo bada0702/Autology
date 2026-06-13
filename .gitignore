@@ -141,3 +141,7 @@ backend/*.spec
 .env.production.local
 .claude/
 .gstack/
+
+# Runtime / build artifacts
+.pids/
+*.exe

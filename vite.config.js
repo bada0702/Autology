@@ -76,12 +76,17 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: ['chojungwon.iptime.org'],
     proxy: {
       '/api/crew': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
       '/api/semantic': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/api/ollama': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

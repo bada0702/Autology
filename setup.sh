@@ -64,6 +64,26 @@ fi
 echo "[Frontend] frontend 의존성 라이브러리를 설치하는 중 (npm install)..."
 npm install
 
+# 5. Ollama 확인 (선택적 단계지만 Autology의 핵심 의존성)
+echo ""
+echo "==================================================="
+echo " Ollama 확인 (핵심 의존성)"
+echo "==================================================="
+if command -v ollama &>/dev/null; then
+    echo "[Ollama] 설치됨: $(ollama --version 2>/dev/null | head -1)"
+    if ollama list 2>/dev/null | tail -n +2 | grep -q .; then
+        echo "[Ollama] 사용 가능한 모델이 있습니다. 준비 완료."
+    else
+        echo "[Ollama] 설치된 모델이 없습니다. 모델을 하나 받으세요:"
+        echo "           ollama pull gemma2"
+    fi
+else
+    echo "[Ollama] 설치되어 있지 않습니다. Autology는 로컬 Ollama LLM이 필요합니다."
+    echo "           1) https://ollama.com/download 에서 설치"
+    echo "           2) 모델 받기:   ollama pull gemma2"
+    echo "         (앱 실행 시 Ollama가 자동으로 함께 켜지며, 미설치/미실행 시 안내 화면이 표시됩니다)"
+fi
+
 echo ""
 echo "==================================================="
 echo " 설치가 성공적으로 완료되었습니다!"

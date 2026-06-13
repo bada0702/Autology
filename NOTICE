@@ -1,0 +1,8 @@
+Autology (오톨로지)
+Copyright 2026 조정원 (chojungwon)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This software uses third-party open-source components, including but not
+limited to: React, Vite, FastAPI, Uvicorn, CrewAI, LangChain, RDFLib,
+pySHACL, and Ollama. Each is distributed under its own license.

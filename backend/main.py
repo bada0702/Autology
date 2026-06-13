@@ -5,17 +5,31 @@ Run: uvicorn main:app --reload --port 8000
 
 import asyncio
 import json
+import logging
+import os
+import sys
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Dict
+
+# .env 로드 (선택적 검색 API 키, OLLAMA_BASE 등) — env를 읽는 다른 모듈 import 전에 실행
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from models.job import Job, JobStatus, AgentStatus
 from crew.orchestrator import run_crew_pipeline
+from memory.store import memory_store
+from ollama_manager import ensure_ollama_running, ollama_installed, shutdown_ollama
 from semantic import (
     SemanticUnavailable,
     parse_rdf_document,
@@ -24,7 +38,22 @@ from semantic import (
     validate_shacl,
 )
 
-app = FastAPI(title="Autology CrewAI Backend", version="1.0.0")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("autology")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 기동/종료 훅 — Ollama 서버를 함께 띄우고 정리한다."""
+    # escape hatch: AUTOLOGY_SKIP_OLLAMA_AUTOSTART 설정 시 자동 기동 생략 (테스트/수동 관리)
+    if not os.getenv("AUTOLOGY_SKIP_OLLAMA_AUTOSTART"):
+        # 블로킹 호출이므로 이벤트 루프를 막지 않도록 스레드에서 실행
+        await asyncio.get_event_loop().run_in_executor(None, ensure_ollama_running)
+    yield
+    shutdown_ollama()
+
+
+app = FastAPI(title="Autology CrewAI Backend", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,17 +99,23 @@ class ShaclRequest(BaseModel):
 
 # ── REST endpoints ─────────────────────────────────────────────────
 
-OLLAMA_BASE = "http://localhost:11434"
+OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434")
+
+
+def _ollama_target(request: Request) -> str:
+    """요청 헤더(X-Ollama-Target)로 대상 Ollama 주소를 결정. 없으면 기본값."""
+    return (request.headers.get("x-ollama-target") or OLLAMA_BASE).rstrip("/")
 
 
 # ── Ollama 프록시 ────────────────────────────────────────────────────
 
 @app.get("/ollama/api/tags")
-async def ollama_tags():
+async def ollama_tags(request: Request):
     """Ollama 설치 모델 목록 프록시 (CORS 우회)."""
+    base = _ollama_target(request)
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            r = await client.get(f"{base}/api/tags")
             return r.json()
     except Exception as e:
         raise HTTPException(502, f"Ollama 연결 실패: {e}")
@@ -89,6 +124,7 @@ async def ollama_tags():
 @app.post("/ollama/api/chat")
 async def ollama_chat(request: Request):
     """Ollama /api/chat 프록시 — 스트리밍/비스트리밍 모두 지원."""
+    base = _ollama_target(request)
     body = await request.body()
     try:
         is_streaming = json.loads(body).get("stream", False)
@@ -99,7 +135,7 @@ async def ollama_chat(request: Request):
         async def stream_gen():
             async with httpx.AsyncClient(timeout=300) as client:
                 async with client.stream(
-                    "POST", f"{OLLAMA_BASE}/api/chat",
+                    "POST", f"{base}/api/chat",
                     content=body,
                     headers={"Content-Type": "application/json"},
                 ) as resp:
@@ -110,7 +146,7 @@ async def ollama_chat(request: Request):
     else:
         async with httpx.AsyncClient(timeout=120) as client:
             r = await client.post(
-                f"{OLLAMA_BASE}/api/chat",
+                f"{base}/api/chat",
                 content=body,
                 headers={"Content-Type": "application/json"},
             )
@@ -118,6 +154,27 @@ async def ollama_chat(request: Request):
 
 
 # ── REST endpoints ─────────────────────────────────────────────────
+
+@app.get("/api/ollama/status")
+async def ollama_status(request: Request):
+    """Ollama 설치/실행/모델 보유 상태를 보고 — 프론트엔드 안내 페이지용."""
+    base = _ollama_target(request)
+    installed = ollama_installed()
+    running = False
+    models: list = []
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(f"{base}/api/tags")
+            if r.status_code == 200:
+                running = True
+                models = [m.get("name") for m in r.json().get("models", []) if m.get("name")]
+    except Exception:
+        pass
+    # 실행 중이면 설치된 것이 확실 (PATH 밖 설치로 binary 탐지 실패한 경우 보정)
+    if running:
+        installed = True
+    return {"installed": installed, "running": running, "models": models}
+
 
 @app.get("/health")
 async def health():
@@ -275,6 +332,76 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     finally:
         if job_id in ws_connections and websocket in ws_connections[job_id]:
             ws_connections[job_id].remove(websocket)
+
+
+# ── Memory API ─────────────────────────────────────────────────────
+
+class PatternCreateRequest(BaseModel):
+    domain: str
+    original: str
+    corrected: str
+    note: str = ""
+
+class PatternIdPath(BaseModel):
+    pattern_id: str
+
+
+@app.get("/api/memory/patterns")
+async def list_patterns(domain: str = ""):
+    """List all learned correction patterns, optionally filtered by domain."""
+    return {"patterns": memory_store.get_patterns(domain or None)}
+
+
+@app.post("/api/memory/patterns")
+async def create_pattern(req: PatternCreateRequest):
+    """Record a new correction pattern (or increment count if duplicate)."""
+    if not req.original.strip() or not req.corrected.strip():
+        raise HTTPException(400, "original and corrected are required")
+    pattern = memory_store.add_pattern(req.domain, req.original, req.corrected, req.note)
+    return {"pattern": pattern}
+
+
+@app.delete("/api/memory/patterns/{pattern_id}")
+async def delete_pattern(pattern_id: str):
+    """Delete a correction pattern by id."""
+    if not memory_store.delete_pattern(pattern_id):
+        raise HTTPException(404, "Pattern not found")
+    return {"deleted": pattern_id}
+
+
+@app.put("/api/memory/patterns/{pattern_id}/count")
+async def increment_pattern(pattern_id: str):
+    """Increment usage count for a pattern."""
+    pattern = memory_store.increment_pattern(pattern_id)
+    if not pattern:
+        raise HTTPException(404, "Pattern not found")
+    return {"pattern": pattern}
+
+
+# ── 정적 프론트엔드 서빙 ────────────────────────────────────────────
+# 빌드된 React 앱(dist/)을 동일 출처(127.0.0.1:8000)에서 서빙한다.
+# 반드시 모든 API/WS 라우트가 등록된 *뒤*에 마운트해야 "/"가 API를 가리지 않는다.
+
+def _dist_dir() -> str:
+    """빌드된 프론트엔드(dist) 경로. PyInstaller 번들/개발 환경 모두 대응."""
+    if getattr(sys, "frozen", False):
+        # PyInstaller: spec에서 ('../dist', 'dist')로 번들 → _MEIPASS/dist
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    else:
+        # backend/main.py → 프로젝트 루트 → dist
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "dist")
+
+
+_DIST = _dist_dir()
+if os.path.isdir(_DIST):
+    # html=True: "/" 요청 시 index.html 반환 (SPA)
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="static")
+    logger.info("프론트엔드 정적 서빙: %s", _DIST)
+else:
+    logger.warning(
+        "dist 폴더를 찾을 수 없습니다 (%s). 프론트엔드는 `npm run dev`로 실행하세요.", _DIST
+    )
 
 
 if __name__ == "__main__":

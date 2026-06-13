@@ -88,6 +88,7 @@ export default function PropertyPanel() {
 
   // ── Node panel ────────────────────────────────────────────
   const color = NODE_COLORS[selectedNode.type] || '#818cf8';
+  const nodeProperties = Array.isArray(selectedNode.properties) ? selectedNode.properties : [];
 
   const updateLabel = (v) => {
     setLabel(v);
@@ -100,18 +101,18 @@ export default function PropertyPanel() {
   };
 
   const addProp = () => {
-    const props = [...(selectedNode.properties || []), { key: '', value: '' }];
+    const props = [...nodeProperties, { key: '', value: '' }];
     dispatch({ type: 'UPDATE_NODE', payload: { id: selectedNode.id, updates: { properties: props } } });
   };
 
   const updateProp = (i, field, val) => {
-    const props = [...selectedNode.properties];
+    const props = [...nodeProperties];
     props[i] = { ...props[i], [field]: val };
     dispatch({ type: 'UPDATE_NODE', payload: { id: selectedNode.id, updates: { properties: props } } });
   };
 
   const deleteProp = (i) => {
-    const props = selectedNode.properties.filter((_, idx) => idx !== i);
+    const props = nodeProperties.filter((_, idx) => idx !== i);
     dispatch({ type: 'UPDATE_NODE', payload: { id: selectedNode.id, updates: { properties: props } } });
   };
 
@@ -207,10 +208,10 @@ export default function PropertyPanel() {
             <span>속성 (Properties)</span>
             <button className="prop-add-btn" onClick={addProp}><Plus size={12} /> 추가</button>
           </div>
-          {(selectedNode.properties || []).length === 0 && (
+          {nodeProperties.length === 0 && (
             <p className="prop-empty">속성 없음</p>
           )}
-          {(selectedNode.properties || []).map((p, i) => (
+          {nodeProperties.map((p, i) => (
             <div key={i} className="prop-kv">
               <input placeholder="key" value={p.key}   onChange={e => updateProp(i, 'key', e.target.value)} />
               <input placeholder="value" value={p.value} onChange={e => updateProp(i, 'value', e.target.value)} />

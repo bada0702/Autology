@@ -1,24 +1,28 @@
 // Auto-layout algorithms for the ontology graph.
 // All functions return { [nodeId]: { x, y } } position maps.
 
-const NODE_W = 160;
-const NODE_H = 56;
+const NODE_W = 180;
+const NODE_H = 60;
 
-// ── Hierarchical (top→down by type) ───────────────────────────────────────────
-export function hierarchicalLayout(nodes, edges) {
-  if (nodes.length === 0) return {};
-
-  const TIER_Y   = { Class: 80, Instance: 320, Literal: 560 };
-  const H_GAP    = 200;
-  const CANVAS_CX = 600;
-
-  // Sort each tier by degree (most connected first) for readable layout
+function computeDegree(nodes, edges) {
   const degree = {};
   for (const n of nodes) degree[n.id] = 0;
   for (const e of edges) {
     if (degree[e.source] !== undefined) degree[e.source]++;
     if (degree[e.target] !== undefined) degree[e.target]++;
   }
+  return degree;
+}
+
+// ── Hierarchical (grid per type tier) ────────────────────────────────────────
+export function hierarchicalLayout(nodes, edges) {
+  if (nodes.length === 0) return {};
+
+  const H_GAP_X  = NODE_W + 40;   // horizontal spacing
+  const H_GAP_Y  = NODE_H + 40;   // row spacing within a tier
+  const TIER_GAP = 160;            // vertical gap between tiers
+
+  const degree = computeDegree(nodes, edges);
 
   const tiers = { Class: [], Instance: [], Literal: [] };
   for (const n of nodes) {
@@ -30,38 +34,51 @@ export function hierarchicalLayout(nodes, edges) {
   }
 
   const positions = {};
-  for (const [type, group] of Object.entries(tiers)) {
+  let currentY = 80;
+
+  for (const type of ['Class', 'Literal', 'Instance']) {
+    const group = tiers[type];
     if (group.length === 0) continue;
-    const totalW = (group.length - 1) * H_GAP;
-    const startX = Math.max(60, CANVAS_CX - totalW / 2);
+
+    // Number of columns: roughly square grid, capped at 12 for readability
+    const COLS = Math.min(group.length, Math.max(1, Math.round(Math.sqrt(group.length * 1.6))));
+    const totalW = (COLS - 1) * H_GAP_X;
+    const startX = Math.max(60, 900 - totalW / 2);
+
     group.forEach((n, i) => {
-      positions[n.id] = { x: startX + i * H_GAP, y: TIER_Y[type] };
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      positions[n.id] = {
+        x: startX + col * H_GAP_X,
+        y: currentY + row * H_GAP_Y,
+      };
     });
+
+    const rows = Math.ceil(group.length / COLS);
+    currentY += rows * H_GAP_Y + TIER_GAP;
   }
 
   return positions;
 }
 
-// ── Radial (most-connected center, BFS rings) ─────────────────────────────────
+// ── Radial (radius scaled to avoid crowding) ──────────────────────────────────
 export function radialLayout(nodes, edges) {
   if (nodes.length === 0) return {};
 
-  const BASE_R = 200;
-  const CX = 580, CY = 380;
+  const MIN_ARC = NODE_W + 20; // minimum arc length per node
+  const BASE_R  = 260;
+  const CX = 900, CY = 600;
 
-  const degree = {};
-  const adj    = {};
-  for (const n of nodes) { degree[n.id] = 0; adj[n.id] = new Set(); }
+  const degree = computeDegree(nodes, edges);
+  const adj = {};
+  for (const n of nodes) adj[n.id] = new Set();
   for (const e of edges) {
-    const s = e.source, t = e.target;
-    if (degree[s] !== undefined) { degree[s]++; adj[s].add(t); }
-    if (degree[t] !== undefined) { degree[t]++; adj[t].add(s); }
+    if (adj[e.source]) adj[e.source].add(e.target);
+    if (adj[e.target]) adj[e.target].add(e.source);
   }
 
-  // Most-connected node as root
   const root = nodes.reduce((a, b) => degree[a.id] >= degree[b.id] ? a : b);
 
-  // BFS to assign levels
   const level = {};
   const queue = [root.id];
   level[root.id] = 0;
@@ -75,12 +92,10 @@ export function radialLayout(nodes, edges) {
     }
   }
   const maxLv = Math.max(...Object.values(level), 0);
-  // Unreachable nodes get outer ring
   for (const n of nodes) {
     if (level[n.id] === undefined) level[n.id] = maxLv + 1;
   }
 
-  // Group by level
   const byLevel = {};
   for (const n of nodes) {
     const lv = level[n.id];
@@ -94,7 +109,10 @@ export function radialLayout(nodes, edges) {
       positions[ids[0]] = { x: CX - NODE_W / 2, y: CY - NODE_H / 2 };
       continue;
     }
-    const r = l * BASE_R;
+    // Scale radius so nodes don't overlap: circumference >= count * MIN_ARC
+    const minR = (ids.length * MIN_ARC) / (2 * Math.PI);
+    const r = Math.max(l * BASE_R, minR);
+
     ids.forEach((id, i) => {
       const angle = (2 * Math.PI * i) / ids.length - Math.PI / 2;
       positions[id] = {
@@ -107,38 +125,41 @@ export function radialLayout(nodes, edges) {
   return positions;
 }
 
-// ── Force-directed (Fruchterman-Reingold, simplified) ─────────────────────────
-export function forceLayout(nodes, edges, iterations = 120) {
+// ── Force-directed (canvas scaled to node count) ──────────────────────────────
+export function forceLayout(nodes, edges, iterations = 200) {
   if (nodes.length === 0) return {};
   if (nodes.length === 1) {
     return { [nodes[0].id]: { x: 500, y: 350 } };
   }
 
-  const W = 1100, H = 780;
-  const k = Math.sqrt((W * H) / nodes.length) * 1.2;
+  // Scale canvas to number of nodes so they have room
+  const area = Math.max(nodes.length * 30000, 1100 * 780);
+  const W = Math.round(Math.sqrt(area * 1.6));
+  const H = Math.round(Math.sqrt(area / 1.6));
+  const k = Math.sqrt((W * H) / nodes.length) * 1.4;
 
-  // Seed positions in a grid
   const pos = {};
   const cols = Math.ceil(Math.sqrt(nodes.length));
   nodes.forEach((n, i) => {
     pos[n.id] = {
-      x: (i % cols) * (W / cols) + 80 + Math.random() * 20,
-      y: Math.floor(i / cols) * (H / Math.ceil(nodes.length / cols)) + 80 + Math.random() * 20,
+      x: (i % cols) * (W / cols) + 80 + Math.random() * 10,
+      y: Math.floor(i / cols) * (H / Math.ceil(nodes.length / cols)) + 80 + Math.random() * 10,
     };
   });
 
   for (let iter = 0; iter < iterations; iter++) {
-    const temp = k * (1 - iter / iterations) * 0.5;
+    const t = iter / iterations;
+    const temp = k * Math.pow(1 - t, 1.5) * 0.8;
     const disp = {};
     for (const n of nodes) disp[n.id] = { x: 0, y: 0 };
 
-    // Repulsion between all pairs
+    // Repulsion
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i].id, b = nodes[j].id;
         const dx = pos[a].x - pos[b].x;
         const dy = pos[a].y - pos[b].y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
         const f = (k * k) / dist;
         const ux = (dx / dist) * f;
         const uy = (dy / dist) * f;
@@ -147,12 +168,12 @@ export function forceLayout(nodes, edges, iterations = 120) {
       }
     }
 
-    // Attraction along edges
+    // Attraction
     for (const e of edges) {
       if (!pos[e.source] || !pos[e.target]) continue;
       const dx = pos[e.target].x - pos[e.source].x;
       const dy = pos[e.target].y - pos[e.source].y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
       const f = (dist * dist) / k;
       const ux = (dx / dist) * f;
       const uy = (dy / dist) * f;
@@ -160,10 +181,10 @@ export function forceLayout(nodes, edges, iterations = 120) {
       disp[e.target].x -= ux; disp[e.target].y -= uy;
     }
 
-    // Apply with temperature clamp + boundary
+    // Apply
     for (const n of nodes) {
       const d = disp[n.id];
-      const dlen = Math.sqrt(d.x * d.x + d.y * d.y) || 0.01;
+      const dlen = Math.sqrt(d.x * d.x + d.y * d.y) || 1;
       const factor = Math.min(dlen, temp) / dlen;
       pos[n.id].x = Math.max(40, Math.min(W - NODE_W, pos[n.id].x + d.x * factor));
       pos[n.id].y = Math.max(40, Math.min(H - NODE_H, pos[n.id].y + d.y * factor));

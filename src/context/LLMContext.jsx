@@ -42,8 +42,12 @@ function llmReducer(state, action) {
   }
 }
 
+// 개발 모드: Vite 미들웨어(/ollama-proxy). 프로덕션(exe): 백엔드 프록시(/ollama).
+// 두 경로 모두 X-Ollama-Target 헤더로 실제 Ollama 주소를 전달한다.
+const OLLAMA_PREFIX = import.meta.env.DEV ? '/ollama-proxy' : '/ollama';
+
 export function makeOllamaFetch(ollamaUrl, path, options = {}) {
-  return fetch(`/ollama-proxy${path}`, {
+  return fetch(`${OLLAMA_PREFIX}${path}`, {
     ...options,
     headers: {
       ...(options.headers || {}),

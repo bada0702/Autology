@@ -1,0 +1,187 @@
+.ollama-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(5, 5, 10, 0.72);
+  backdrop-filter: var(--blur);
+  animation: ollama-guide-fade 0.2s ease;
+}
+
+@keyframes ollama-guide-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.ollama-guide__card {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  padding: 32px 30px 24px;
+  background: #0d0d16;
+  border: 1px solid var(--border-bright);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  color: var(--text-1);
+}
+
+.ollama-guide__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  padding: 6px;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color var(--t), background var(--t);
+}
+.ollama-guide__close:hover {
+  color: var(--text-1);
+  background: var(--surface-hover);
+}
+
+.ollama-guide__badge {
+  display: inline-block;
+  margin-bottom: 14px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+}
+.ollama-guide__badge--danger {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+.ollama-guide__badge--warning {
+  color: var(--warning);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.ollama-guide__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ollama-guide__desc {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.ollama-guide__desc strong { color: var(--text-1); }
+
+.ollama-guide__steps {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ollama-guide__steps li {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.ollama-guide__steps li > span { display: block; margin-bottom: 7px; }
+.ollama-guide__steps code {
+  padding: 1px 5px;
+  font-size: 12px;
+  background: var(--surface-active);
+  border-radius: 4px;
+}
+
+.ollama-guide__dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-glow);
+  border-radius: 9px;
+  transition: background var(--t);
+}
+.ollama-guide__dl:hover { background: rgba(129, 140, 248, 0.25); }
+
+.ollama-guide__cmd {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: #06060c;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ollama-guide__cmd-icon { color: var(--text-3); flex-shrink: 0; }
+.ollama-guide__cmd code {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-1);
+  background: none;
+  padding: 0;
+}
+.ollama-guide__cmd-copy {
+  display: flex;
+  padding: 5px;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color var(--t), background var(--t);
+}
+.ollama-guide__cmd-copy:hover { color: var(--text-1); background: var(--surface-hover); }
+
+.ollama-guide__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.ollama-guide__url {
+  font-size: 12px;
+  color: var(--text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ollama-guide__recheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  background: var(--surface-active);
+  border: 1px solid var(--border-bright);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background var(--t);
+}
+.ollama-guide__recheck:hover:not(:disabled) { background: var(--surface-hover); }
+.ollama-guide__recheck:disabled { opacity: 0.6; cursor: default; }
+
+.ollama-guide__spin { animation: ollama-guide-spin 1s linear infinite; }
+@keyframes ollama-guide-spin {
+  to { transform: rotate(360deg); }
+}

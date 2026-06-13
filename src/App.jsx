@@ -11,6 +11,7 @@ import RulePanel from './components/Panels/RulePanel';
 import MiniMap from './components/MiniMap/MiniMap';
 import ChatPanel from './components/Panels/ChatPanel';
 import CodeEditorPanel from './components/CodeEditor/CodeEditorPanel';
+import OllamaGuide from './components/OllamaGuide/OllamaGuide';
 import './App.css';
 
 const CENTER_TABS = [
@@ -73,6 +74,7 @@ export default function App() {
                 <PropertyPanel />
               </div>
               {showChat && <ChatPanel onClose={() => setShowChat(false)} />}
+              <OllamaGuide />
             </div>
           </RuleProvider>
         </WorkflowProvider>

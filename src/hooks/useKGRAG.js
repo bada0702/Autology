@@ -176,6 +176,7 @@ export function useKGRAG() {
 
     // ── 컨텍스트 구성 ──────────────────────────────────────────
     let context, mode, anchorLabels = [];
+    let evidenceNodeIds = [], evidenceEdgeIds = [];
 
     if (nodes.length === 0) {
       context = '(그래프가 비어 있습니다)';
@@ -184,6 +185,8 @@ export function useKGRAG() {
       // 소형 그래프: 전체 직렬화 (방향 포함)
       context = serializeFullGraph(nodes, edges);
       mode = '전체 그래프';
+      evidenceNodeIds = nodes.map(n => n.id);
+      evidenceEdgeIds = edges.filter(e => !e.inferred).map(e => e.id);
     } else {
       // 대형 그래프: 쿼리 기반 서브그래프 추출
       const anchors = findAnchorNodes(nodes, query);
@@ -205,6 +208,8 @@ export function useKGRAG() {
         context = serializeSubgraph(subNodes, subEdges, topNodes.map(n => n.id));
         mode = '허브 중심 서브그래프 (앵커 미발견)';
         anchorLabels = topNodes.map(n => n.label);
+        evidenceNodeIds = subNodes.map(n => n.id);
+        evidenceEdgeIds = subEdges.map(e => e.id);
       } else {
         // 상위 3개 앵커로 2-hop 서브그래프 추출
         const topAnchors = anchors.slice(0, 3);
@@ -221,6 +226,8 @@ export function useKGRAG() {
 
         context = serializeSubgraph(subNodes3, subEdges3, topAnchors.map(n => n.id));
         mode = `쿼리 기반 서브그래프 (${subNodes3.length}/${nodes.length} 노드, 양방향 2-hop)`;
+        evidenceNodeIds = subNodes3.map(n => n.id);
+        evidenceEdgeIds = subEdges3.map(e => e.id);
       }
     }
 
@@ -268,7 +275,11 @@ export function useKGRAG() {
       abortCtrlRef.current = null;
       llmDispatch({ type: 'FINISH_GENERATION' });
       if (ctrl.signal.aborted) return null;
-      return { content: fullContent, meta: { mode, anchorLabels } };
+      return {
+        content: fullContent,
+        meta: { mode, anchorLabels },
+        evidencePath: { nodeIds: evidenceNodeIds, edgeIds: evidenceEdgeIds },
+      };
     } catch (err) {
       abortCtrlRef.current = null;
       if (err.name === 'AbortError') {
