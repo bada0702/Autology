@@ -145,5 +145,4 @@ def make_editor_task(
         ),
         agent=agent,
         context=[extraction_task, relation_task, validation_task],
-        output_json=dict,
     )

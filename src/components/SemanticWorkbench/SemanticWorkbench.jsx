@@ -2,39 +2,14 @@ import React, { useContext, useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Database, Play, ShieldCheck, X } from 'lucide-react';
 import GraphContext from '../../context/GraphContext';
-import { exportToTurtle } from '../../utils/ontologyIO';
+import { exportToTurtle, generateSparqlQueries, buildSparqlDocument, generateShacl } from '../../utils/ontologyIO';
 import { getSemanticCapabilities, runSPARQL, validateSHACL } from '../../utils/semanticApi';
 import './SemanticWorkbench.css';
-
-const DEFAULT_QUERY = `PREFIX owl: <http://www.w3.org/2002/07/owl#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-
-SELECT ?subject ?predicate ?object
-WHERE {
-  ?subject ?predicate ?object .
-}
-LIMIT 25`;
-
-const DEFAULT_SHAPES = `@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix : <http://autology.local/ontology#> .
-
-:ClassLabelShape
-  a sh:NodeShape ;
-  sh:targetClass owl:Class ;
-  sh:property [
-    sh:path rdfs:label ;
-    sh:minCount 1 ;
-  ] .`;
 
 export default function SemanticWorkbench({ onClose }) {
   const { state } = useContext(GraphContext);
   const [tab, setTab] = useState('sparql');
   const [caps, setCaps] = useState(null);
-  const [query, setQuery] = useState(DEFAULT_QUERY);
-  const [shapes, setShapes] = useState(DEFAULT_SHAPES);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [running, setRunning] = useState(false);
@@ -43,12 +18,35 @@ export default function SemanticWorkbench({ onClose }) {
     () => exportToTurtle(state.nodes, state.edges),
     [state.nodes, state.edges]
   );
+  const genQueries = useMemo(
+    () => generateSparqlQueries(state.nodes, state.edges),
+    [state.nodes, state.edges]
+  );
+  const genShapes = useMemo(
+    () => generateShacl(state.nodes, state.edges),
+    [state.nodes, state.edges]
+  );
+
+  // Seed the editors from the graph when the workbench opens; keep them editable.
+  // SPARQL has one query per class/relation, picked from a dropdown; SHACL is one
+  // document with every shape. Both offer "regenerate" to reset to graph-derived.
+  const [queryIdx, setQueryIdx] = useState(0);
+  const [query, setQuery] = useState(() => buildSparqlDocument(genQueries, 0));
+  const [shapes, setShapes] = useState(genShapes);
+
+  // The editor shows the full query set; the dropdown picks which one is active
+  // (uncommented) so Run executes exactly that query.
+  const selectQuery = idx => {
+    setQueryIdx(idx);
+    setQuery(buildSparqlDocument(genQueries, idx));
+  };
 
   useEffect(() => {
     getSemanticCapabilities()
       .then(setCaps)
       .catch(() => setCaps({ rdflib: false, pyshacl: false }));
   }, []);
+
 
   const runQuery = async () => {
     setRunning(true);
@@ -112,7 +110,23 @@ export default function SemanticWorkbench({ onClose }) {
 
         {tab === 'sparql' && (
           <div className="sw-grid">
-            <Editor title="SPARQL Query" value={query} onChange={setQuery} />
+            <Editor
+              title="SPARQL Query"
+              value={query}
+              onChange={setQuery}
+              onRegenerate={() => selectQuery(queryIdx)}
+              headExtra={
+                <select
+                  className="sw-query-select"
+                  value={queryIdx}
+                  onChange={e => selectQuery(Number(e.target.value))}
+                >
+                  {genQueries.map((qq, i) => (
+                    <option key={i} value={i}>{qq.title}</option>
+                  ))}
+                </select>
+              }
+            />
             <ResultPanel
               actionLabel="Run Query"
               icon={<Play size={13} />}
@@ -126,7 +140,12 @@ export default function SemanticWorkbench({ onClose }) {
 
         {tab === 'shacl' && (
           <div className="sw-grid">
-            <Editor title="SHACL Shapes" value={shapes} onChange={setShapes} />
+            <Editor
+              title="SHACL Shapes"
+              value={shapes}
+              onChange={setShapes}
+              onRegenerate={() => setShapes(genShapes)}
+            />
             <ResultPanel
               actionLabel="Validate"
               icon={<ShieldCheck size={13} />}
@@ -149,10 +168,20 @@ export default function SemanticWorkbench({ onClose }) {
   );
 }
 
-function Editor({ title, value, onChange, readOnly = false }) {
+function Editor({ title, value, onChange, readOnly = false, onRegenerate, headExtra }) {
   return (
     <div className="sw-editor">
-      <div className="sw-panel-title">{title}</div>
+      <div className="sw-editor-head">
+        <span className="sw-panel-title">{title}</span>
+        <div className="sw-editor-head-actions">
+          {headExtra}
+          {onRegenerate && (
+            <button className="sw-regen-btn" onClick={onRegenerate} title="현재 그래프에서 다시 생성">
+              그래프에서 재생성
+            </button>
+          )}
+        </div>
+      </div>
       <textarea
         className="sw-textarea"
         value={value}

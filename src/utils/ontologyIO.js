@@ -4,7 +4,15 @@ const BASE_NS  = 'http://autology.local/ontology';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toLocalName(str) {
-  return String(str).replace(/\s+/g, '_').replace(/[^\w\-.]/g, '') || null;
+  // Produce a valid Turtle PN_LOCAL. Keep word chars, hyphen and internal dot,
+  // but a local name may not start with '-'/'.' nor end with '.', or rdflib
+  // rejects the whole document with BadSyntax (e.g. ":v1.0." or a lone ":.").
+  const s = String(str ?? '')
+    .replace(/\s+/g, '_')
+    .replace(/[^\w\-.]/g, '')
+    .replace(/^[-.]+/, '')
+    .replace(/[-.]+$/, '');
+  return s || null;
 }
 
 function escapeTTL(str) {
@@ -37,6 +45,41 @@ function buildIRIMap(nodes) {
   return map;
 }
 
+// Build the shared vocabulary used by every serializer/generator so the local
+// names in Turtle, SPARQL and SHACL all line up (a SHACL sh:path or a SPARQL
+// predicate is useless if it doesn't match the IRI the data actually uses).
+// Object-property names come from edge labels; datatype-property names come
+// from node property keys. Both are de-duplicated globally (not per-node) so the
+// same key always maps to the same predicate.
+function buildPropMaps(nodes, edges) {
+  const objLabels = [...new Set(
+    edges.map(e => e.label).filter(l => l && l !== 'rdf:type')
+  )];
+  const used = {};
+  const objPropIRI = {};
+  objLabels.forEach((l, li) => {
+    let base = toLocalName(l) || `rel${li + 1}`;
+    let name = base, k = 1;
+    while (used[name]) name = `${base}_${k++}`;
+    used[name] = true;
+    objPropIRI[l] = name;
+  });
+
+  const dataKeys = [...new Set(
+    nodes.flatMap(n => (n.properties || []).map(p => p.key).filter(Boolean))
+  )];
+  const dataPropIRI = {};
+  dataKeys.forEach((key, ki) => {
+    let base = toLocalName(key) || `prop${ki + 1}`;
+    let name = base, k = 1;
+    while (used[name]) name = `${base}_${k++}`;
+    used[name] = true;
+    dataPropIRI[key] = name;
+  });
+
+  return { objLabels, objPropIRI, dataKeys, dataPropIRI };
+}
+
 // ── TTL Export ────────────────────────────────────────────────────────────────
 
 export function exportToTurtle(nodes, edges) {
@@ -52,21 +95,9 @@ export function exportToTurtle(nodes, edges) {
     ``,
   ];
 
-  // Object property declarations
-  const propLabels = [...new Set(
-    edges.map(e => e.label).filter(l => l && l !== 'rdf:type')
-  )];
-  // Build a safe IRI for each edge label (Korean-safe)
-  const propIRI = {};
-  const usedPropNames = {};
-  propLabels.forEach((l, li) => {
-    const ascii = toLocalName(l);
-    let base = ascii || `rel${li + 1}`;
-    let name = base, k = 1;
-    while (usedPropNames[name]) name = `${base}_${k++}`;
-    usedPropNames[name] = true;
-    propIRI[l] = name;
-  });
+  // Shared vocabulary: object-property names (edge labels) + datatype-property
+  // names (node property keys), so Turtle/SPARQL/SHACL all use the same IRIs.
+  const { objLabels: propLabels, objPropIRI: propIRI, dataPropIRI } = buildPropMaps(nodes, edges);
 
   if (propLabels.length) {
     out.push(`# Object Properties`);
@@ -80,9 +111,9 @@ export function exportToTurtle(nodes, edges) {
     const iri = iriOf[n.id];
     const lines = [`a ${owlType}`, `rdfs:label "${escapeTTL(n.label)}"`];
     if (n.description) lines.push(`rdfs:comment "${escapeTTL(n.description)}"`);
-    (n.properties || []).forEach((p, pi) => {
+    (n.properties || []).forEach((p) => {
       if (p.key && p.value) {
-        const predName = toLocalName(p.key) || `prop${pi + 1}`;
+        const predName = dataPropIRI[p.key] || toLocalName(p.key) || 'property';
         lines.push(`:${predName} "${escapeTTL(p.value)}"`);
       }
     });
@@ -106,6 +137,196 @@ export function exportToTurtle(nodes, edges) {
       const pred = e.label === 'rdf:type' ? 'rdf:type' : `:${propIRI[e.label] || toLocalName(e.label) || 'relatedTo'}`;
       out.push(`:${iriOf[e.source]} ${pred} :${iriOf[e.target]} .${e.inferred ? ' # inferred' : ''}`);
     }
+  }
+
+  return out.join('\n');
+}
+
+// ── SPARQL Generation ───────────────────────────────────────────────────────
+// Generate a list of ready-to-run SPARQL queries from the graph's actual
+// vocabulary — one per class and per relation, plus a couple of overview
+// queries. Each entry is a complete, runnable query (a SPARQL document can hold
+// only one query, so we expose them as a selectable list instead of stacking
+// them in one editor). Predicate/class IRIs match exportToTurtle exactly.
+
+const SPARQL_PREFIXES = [
+  `PREFIX :    <${BASE_IRI}>`,
+  `PREFIX owl: <http://www.w3.org/2002/07/owl#>`,
+  `PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>`,
+  `PREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>`,
+  ``,
+].join('\n');
+
+export function generateSparqlQueries(nodes, edges) {
+  const iriOf = buildIRIMap(nodes);
+  const { objPropIRI, dataKeys, dataPropIRI } = buildPropMaps(nodes, edges);
+  const classes = nodes.filter(n => n.type === 'Class');
+
+  const q = (title, body) => ({ title, body: body.trim(), sparql: SPARQL_PREFIXES + body.trim() + '\n' });
+  const queries = [];
+
+  queries.push(q('모든 개체 (타입·라벨)', `
+SELECT ?subject ?type ?label
+WHERE {
+  ?subject a ?type .
+  OPTIONAL { ?subject rdfs:label ?label }
+}
+LIMIT 100`));
+
+  queries.push(q('클래스별 인스턴스 수', `
+SELECT ?type (COUNT(?x) AS ?count)
+WHERE { ?x a ?type }
+GROUP BY ?type
+ORDER BY DESC(?count)`));
+
+  classes.forEach(c => {
+    queries.push(q(`클래스: ${c.label}`, `
+SELECT ?instance ?label
+WHERE {
+  ?instance a :${iriOf[c.id]} .
+  OPTIONAL { ?instance rdfs:label ?label }
+}
+LIMIT 200`));
+  });
+
+  Object.entries(objPropIRI).forEach(([label, iri]) => {
+    queries.push(q(`관계: ${label}`, `
+SELECT ?source ?sourceLabel ?target ?targetLabel
+WHERE {
+  ?source :${iri} ?target .
+  OPTIONAL { ?source rdfs:label ?sourceLabel }
+  OPTIONAL { ?target rdfs:label ?targetLabel }
+}
+LIMIT 200`));
+  });
+
+  dataKeys.forEach(key => {
+    queries.push(q(`속성: ${key}`, `
+SELECT ?subject ?label ?value
+WHERE {
+  ?subject :${dataPropIRI[key]} ?value .
+  OPTIONAL { ?subject rdfs:label ?label }
+}
+LIMIT 200`));
+  });
+
+  return queries;
+}
+
+// Convenience: the default (first) generated query as a string.
+export function generateSparql(nodes, edges) {
+  return generateSparqlQueries(nodes, edges)[0]?.sparql || SPARQL_PREFIXES;
+}
+
+// Render every generated query into one document so the full graph-aware query
+// set is always visible. Only the query at `activeIdx` is left runnable; the
+// rest are commented (a SPARQL document runs a single query), so the editor text
+// stays valid and Run executes exactly the selected query.
+export function buildSparqlDocument(queries, activeIdx = 0) {
+  if (!queries.length) return SPARQL_PREFIXES;
+  const out = [SPARQL_PREFIXES.replace(/\n+$/, ''), ''];
+  queries.forEach((qq, i) => {
+    const active = i === activeIdx;
+    out.push(`# ===== ${active ? '[실행 중] ' : ''}${qq.title} =====`);
+    if (active) {
+      out.push(qq.body);
+    } else {
+      qq.body.split('\n').forEach(line => out.push(line ? `# ${line}` : '#'));
+    }
+    out.push('');
+  });
+  return out.join('\n');
+}
+
+// ── SHACL Generation ────────────────────────────────────────────────────────
+// Generate SHACL NodeShapes from the graph: one shape per owl:Class, with
+// property shapes derived from the datatype properties and object relations its
+// instances actually use. Constraints are deliberately permissive (no false
+// violations against the current data) so the output is a usable starting point.
+
+export function generateShacl(nodes, edges) {
+  const iriOf = buildIRIMap(nodes);
+  const { objPropIRI, dataPropIRI } = buildPropMaps(nodes, edges);
+  const idToNode = Object.fromEntries(nodes.map(n => [n.id, n]));
+
+  // Classes for SHACL = explicit owl:Class nodes ∪ any node used as the target of
+  // an rdf:type edge (a de-facto class even if it isn't typed 'Class'). This keeps
+  // shapes flowing for instance-heavy graphs that have no explicit class nodes.
+  const classIds = new Set(nodes.filter(n => n.type === 'Class').map(n => n.id));
+  edges.forEach(e => { if (e.label === 'rdf:type' && idToNode[e.target]) classIds.add(e.target); });
+  const classNodes = [...classIds].map(id => idToNode[id]).filter(Boolean);
+
+  const instancesByClass = {};
+  edges.forEach(e => {
+    if (e.label === 'rdf:type' && idToNode[e.source]) {
+      (instancesByClass[e.target] ||= []).push(idToNode[e.source]);
+    }
+  });
+
+  const out = [
+    `@prefix sh:   <http://www.w3.org/ns/shacl#> .`,
+    `@prefix owl:  <http://www.w3.org/2002/07/owl#> .`,
+    `@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .`,
+    `@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .`,
+    `@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .`,
+    `@prefix :     <${BASE_IRI}> .`,
+    ``,
+  ];
+
+  // Build the sh:property blocks for a set of datatype keys + object relations.
+  // Returns an array of multi-line block strings (each ending at the closing ']').
+  const propBlocks = (dataKeys, rels) => {
+    const blocks = [
+      [`  sh:property [`, `    sh:path rdfs:label ;`, `    sh:minCount 1 ;`, `  ]`].join('\n'),
+    ];
+    for (const key of dataKeys) {
+      const pIri = dataPropIRI[key];
+      if (!pIri) continue;
+      blocks.push([`  sh:property [`, `    sh:path :${pIri} ;        # ${key}`, `    sh:datatype xsd:string ;`, `  ]`].join('\n'));
+    }
+    for (const [label, targets] of Object.entries(rels)) {
+      const pIri = objPropIRI[label];
+      if (!pIri) continue;
+      const lines = [`  sh:property [`, `    sh:path :${pIri} ;        # ${label}`, `    sh:nodeKind sh:IRI ;`];
+      const tgtArr = [...targets];
+      if (tgtArr.length === 1) lines.push(`    sh:class :${tgtArr[0]} ;`);
+      lines.push(`  ]`);
+      blocks.push(lines.join('\n'));
+    }
+    return blocks;
+  };
+
+  if (classNodes.length) {
+    for (const c of classNodes) {
+      const cIri = iriOf[c.id];
+      const insts = instancesByClass[c.id] || [];
+
+      const dataKeys = new Set();
+      [c, ...insts].forEach(n => (n.properties || []).forEach(p => {
+        if (p.key && p.value) dataKeys.add(p.key);
+      }));
+
+      const rels = {};
+      insts.forEach(inst => {
+        edges.filter(e => e.source === inst.id && e.label !== 'rdf:type').forEach(e => {
+          (rels[e.label] ||= new Set());
+          if (classIds.has(e.target)) rels[e.label].add(iriOf[e.target]);
+        });
+      });
+
+      out.push(`:${cIri}Shape`, `  a sh:NodeShape ;`, `  sh:targetClass :${cIri} ;`);
+      out.push(propBlocks(dataKeys, rels).join(' ;\n') + ' .', ``);
+    }
+  } else {
+    // No classes at all: one graph-wide shape over every node that has a label.
+    const dataKeys = new Set();
+    nodes.forEach(n => (n.properties || []).forEach(p => { if (p.key && p.value) dataKeys.add(p.key); }));
+    const rels = {};
+    edges.filter(e => e.label !== 'rdf:type').forEach(e => { (rels[e.label] ||= new Set()); });
+
+    out.push(`# 명시적 owl:Class가 없어, 라벨을 가진 모든 개체에 대한 공통 NodeShape를 생성합니다.`);
+    out.push(`:GraphNodeShape`, `  a sh:NodeShape ;`, `  sh:targetSubjectsOf rdfs:label ;`);
+    out.push(propBlocks(dataKeys, rels).join(' ;\n') + ' .', ``);
   }
 
   return out.join('\n');

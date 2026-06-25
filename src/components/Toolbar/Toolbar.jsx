@@ -9,7 +9,7 @@ import {
 import { searchNodes } from '../../utils/graphAnalysis';
 import { hierarchicalLayout, radialLayout, forceLayout } from '../../utils/layout';
 import { saveMermaid, saveMarkdown, saveCypher, saveSVG, savePNG } from '../../utils/exporters';
-import { exportToTurtle, exportToOWL, parseOWL, parseTurtle } from '../../utils/ontologyIO';
+import { exportToTurtle, exportToOWL, parseOWL, parseTurtle, generateSparqlQueries, buildSparqlDocument, generateShacl } from '../../utils/ontologyIO';
 import { exportWithRDFLib, importWithRDFLib } from '../../utils/semanticApi';
 import GraphContext from '../../context/GraphContext';
 import LLMContext from '../../context/LLMContext';
@@ -207,6 +207,14 @@ export default function Toolbar({ onOpenChat }) {
         const text = exportToOWL(nodes, edges);
         _download(text, `autology_${_today()}.owl`, 'application/rdf+xml');
       }
+      if (type === 'sparql') {
+        const text = buildSparqlDocument(generateSparqlQueries(nodes, edges), 0);
+        _download(text, `autology_${_today()}.rq`, 'application/sparql-query');
+      }
+      if (type === 'shacl') {
+        const text = generateShacl(nodes, edges);
+        _download(text, `autology_${_today()}.shapes.ttl`, 'text/turtle');
+      }
       if (type === 'jsonld') {
         const text = await exportWithRDFLib({ nodes, edges }, 'json-ld');
         _download(text, `autology_${_today()}.jsonld`, 'application/ld+json');
@@ -231,41 +239,70 @@ export default function Toolbar({ onOpenChat }) {
 
   const handleAutoConnect = () => {
     const { nodes, edges } = state;
-    const literalNodes = nodes.filter(n => n.type === 'Literal');
-    if (literalNodes.length === 0) {
-      alert('연결할 Literal 노드가 없습니다.\n직위, 소속법인 등의 Literal 노드를 먼저 만들어주세요.');
+    const instanceNodes = nodes.filter(n => n.type === 'Instance');
+    if (instanceNodes.length === 0) {
+      alert('속성을 연결할 Instance 노드가 없습니다.\nInstance 노드를 먼저 만들고 속성(key/value)을 추가하세요.');
       return;
     }
 
-    const normalize = (v) => v ? v.replace(/[()（）]/g, '').trim() : '';
+    // 숫자/null 값도 안전하게 처리하고, 대소문자·공백·괄호 차이를 흡수해 매칭 정확도를 높인다.
+    const normalize = (v) =>
+      v == null ? '' : String(v).replace(/[()（）]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
+    // 기존 Literal 노드를 정규화 label로 인덱싱 (재사용 우선)
+    const literalByNorm = new Map();
+    nodes.filter(n => n.type === 'Literal').forEach(l => {
+      const k = normalize(l.label);
+      if (k && !literalByNorm.has(k)) literalByNorm.set(k, l);
+    });
+
+    const newNodes = [];
     const newEdges = [];
+    const createdByNorm = new Map(); // 이번 실행에서 만든 Literal을 인스턴스 간 공유
     const now = Date.now();
 
-    nodes.forEach(node => {
-      if (node.type !== 'Instance') return;
+    instanceNodes.forEach(node => {
       const props = Array.isArray(node.properties) ? node.properties : [];
+      let createdOffset = 0;
       props.forEach(({ key, value }) => {
-        if (!value) return;
+        if (value == null || String(value).trim() === '') return;
         const normValue = normalize(value);
         const normKey   = normalize(key);
-        // 전략1: property value가 Literal label과 일치 (예: 직위:"이사" → Literal "이사")
-        // 전략2: property key가 Literal label과 일치 (예: 소속법인:"..." → Literal "소속법인")
-        const literal =
-          literalNodes.find(l => normalize(l.label) === normValue) ||
-          literalNodes.find(l => normalize(l.label) === normKey);
-        if (!literal) return;
+
+        // 1) 기존/이번에 만든 Literal 중 value 일치 → 2) key 일치 순으로 재사용
+        let literal =
+          literalByNorm.get(normValue) ||
+          createdByNorm.get(normValue) ||
+          literalByNorm.get(normKey);
+
+        // 매칭되는 Literal이 없으면 속성값으로 새 Literal 노드를 생성한다.
+        if (!literal) {
+          literal = {
+            id: `lit_${now}_${newNodes.length}`,
+            label: String(value).trim(),
+            type: 'Literal',
+            x: (node.x || 0) + 200,
+            y: (node.y || 0) + 60 + createdOffset * 70,
+            properties: [],
+            description: '',
+          };
+          newNodes.push(literal);
+          createdByNorm.set(normValue, literal);
+          createdOffset++;
+        }
+
+        const edgeLabel = key || 'has-value';
         const alreadyExists = edges.some(
-          e => e.source === node.id && e.target === literal.id && e.label === key
+          e => e.source === node.id && e.target === literal.id && e.label === edgeLabel
         ) || newEdges.some(
-          e => e.source === node.id && e.target === literal.id && e.label === key
+          e => e.source === node.id && e.target === literal.id && e.label === edgeLabel
         );
         if (alreadyExists) return;
         newEdges.push({
           id: `auto_${now}_${newEdges.length}`,
           source: node.id,
           target: literal.id,
-          label: key,
+          label: edgeLabel,
           style: 'solid',
           direction: 'forward',
           inferred: false,
@@ -273,13 +310,14 @@ export default function Toolbar({ onOpenChat }) {
       });
     });
 
-    if (newEdges.length === 0) {
-      alert('새로 연결할 엣지가 없습니다.\n(이미 모두 연결되어 있거나 매칭되는 Literal 노드가 없습니다)');
+    if (newNodes.length === 0 && newEdges.length === 0) {
+      alert('연결할 속성이 없습니다.\nInstance 노드에 속성(key/value)을 먼저 추가하세요.');
       return;
     }
 
-    newEdges.forEach(edge => dispatch({ type: 'ADD_EDGE', payload: edge }));
-    alert(`${newEdges.length}개의 엣지가 자동으로 생성되었습니다.`);
+    newNodes.forEach(n => dispatch({ type: 'ADD_NODE', payload: n }));
+    newEdges.forEach(e => dispatch({ type: 'ADD_EDGE', payload: e }));
+    alert(`Literal 노드 ${newNodes.length}개 생성, 엣지 ${newEdges.length}개 연결 완료.`);
   };
 
   const handleLayout = (type) => {
@@ -521,6 +559,8 @@ export default function Toolbar({ onOpenChat }) {
           <button className="layout-item" onClick={() => handleExport('cypher')}><span className="layout-icon">⬢</span>Cypher</button>
           <button className="layout-item" onClick={() => handleExport('turtle')}><span className="layout-icon">🐢</span>Turtle (.ttl)</button>
           <button className="layout-item" onClick={() => handleExport('owl')}><span className="layout-icon">🦉</span>OWL/RDF-XML</button>
+          <button className="layout-item" onClick={() => handleExport('sparql')}><span className="layout-icon">🔍</span>SPARQL (.rq)</button>
+          <button className="layout-item" onClick={() => handleExport('shacl')}><span className="layout-icon">✓</span>SHACL (.ttl)</button>
           <button className="layout-item" onClick={() => handleExport('jsonld')}><span className="layout-icon">LD</span>JSON-LD (RDFLib)</button>
           <button className="layout-item" onClick={() => handleExport('rdfxml')}><span className="layout-icon">RDF</span>RDF/XML (RDFLib)</button>
           <button className="layout-item" onClick={() => handleExport('svg')}><span className="layout-icon">🖼</span>SVG</button>

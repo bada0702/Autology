@@ -90,6 +90,10 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/api/memory': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/ws/crew': {
         target: 'ws://localhost:8000',
         ws: true,

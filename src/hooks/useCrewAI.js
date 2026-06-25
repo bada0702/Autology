@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback, useContext } from 'react';
 import GraphContext from '../context/GraphContext';
 
-// 개발 모드: Vite(:5173)에서 백엔드(:8000)로 직접 호출.
-// 프로덕션(exe): 프론트엔드가 백엔드(:8000)에서 서빙되므로 동일 출처(상대 경로).
-const BACKEND = import.meta.env.DEV ? 'http://localhost:8000' : '';
-const WS_BASE = import.meta.env.DEV
-  ? 'ws://localhost:8000'
-  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+// 항상 동일 출처(상대 경로)로 호출한다.
+// - 개발 모드: Vite(:5173)의 proxy 설정이 백엔드(:8000)로 중계한다.
+// - 프로덕션(exe): 프론트엔드가 백엔드(:8000)에서 서빙되므로 동일 출처.
+// 이렇게 하면 원격 접속(예: chojungwon.iptime.org:5173)에서도 동작한다.
+// (이전엔 localhost:8000를 직접 호출해 원격 브라우저가 자기 PC를 찾던 버그가 있었음)
+const BACKEND = '';
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
 
 const INITIAL_AGENTS = [
   { name: 'Research Agent',    emoji: '🔍', status: 'pending', message: '', preview: '' },

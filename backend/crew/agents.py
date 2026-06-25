@@ -1,14 +1,16 @@
 """CrewAI Agent definitions for ontology extraction pipeline."""
 
-from crewai import Agent
-from langchain_ollama import ChatOllama
+from crewai import Agent, LLM
 import os
 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 OLLAMA_BASE  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def _llm():
-    return ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE, temperature=0.2)
+    # CrewAI (>=1.x) routes LLMs through LiteLLM and does NOT accept a LangChain
+    # ChatOllama object. Use CrewAI's native LLM with the "ollama/" provider prefix.
+    model = OLLAMA_MODEL if "/" in OLLAMA_MODEL else f"ollama/{OLLAMA_MODEL}"
+    return LLM(model=model, base_url=OLLAMA_BASE, temperature=0.2)
 
 def make_research_agent() -> Agent:
     return Agent(
