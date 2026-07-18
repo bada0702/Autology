@@ -129,6 +129,9 @@ npm run dev
 
 ---
 
+<img width="2557" height="1266" alt="image" src="https://github.com/user-attachments/assets/bdd172ee-b03f-47fc-9980-7e065d8c2f39" />
+
+
 ## 📂 프로젝트 구조
 
 ```text
