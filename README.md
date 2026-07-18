@@ -130,6 +130,8 @@ npm run dev
 ---
 
 <img width="2557" height="1266" alt="image" src="https://github.com/user-attachments/assets/bdd172ee-b03f-47fc-9980-7e065d8c2f39" />
+<img width="686" height="935" alt="image" src="https://github.com/user-attachments/assets/54a3009d-f9db-4d22-a832-9199347a0631" />
+<img width="1121" height="766" alt="image" src="https://github.com/user-attachments/assets/7f39dec3-c5f8-4502-9302-178accfb2fbf" />
 
 
 ## 📂 프로젝트 구조
