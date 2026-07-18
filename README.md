@@ -153,3 +153,7 @@ Autology/
 ├── start.bat / start.sh    # 통합 개발 서버 실행 스크립트
 └── .gitignore              # Git 무시 파일 목록 (추가됨)
 ```
+
+## 📄 라이선스
+
+이 프로젝트는 [Apache License 2.0](./LICENSE)을 따릅니다.
