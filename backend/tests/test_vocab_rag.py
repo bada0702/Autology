@@ -32,17 +32,35 @@ def _link(graph, chat=None):
     return summary
 
 
-def _fake_chat(answer, verify="a"):
-    """Fake LLM: `answer` handles the selection call; the verification call
-    (system prompt mentions 'statement') answers `verify` for every item."""
+def _fake_chat(answer, verify="a", meaning="yes", vote_same=True):
+    """Fake LLM. `answer` handles selection and the other checks answer `verify`
+    (direction) and `meaning`; query expansion finds nothing. A numbered pick
+    means the same option when the list is asked again in reverse order, unless
+    `vote_same` is False."""
     calls = []
+    first_pick: dict[str, str] = {}
 
     async def chat(system, user):
         calls.append(user)
-        if "statement" in system:
-            n = sum(1 for line in user.splitlines() if "property:" in line)
-            return json.dumps({"answers": {str(i): verify for i in range(1, n + 1)}})
-        return json.dumps(answer(user) if callable(answer) else answer)
+        if "statements" in system:
+            return json.dumps({"reason": "", "answer": verify})
+        if "terms" in system:
+            return json.dumps({"terms": []})
+        if "proposed Wikidata property" in system:
+            return json.dumps({"reason": "", "answer": meaning})
+        result = dict(answer(user) if callable(answer) else answer)
+        choice = result.get("choice")
+        options = [x for x in user.splitlines() if x[:1].isdigit() and not x.startswith("0)")]
+        relation = user.splitlines()[0]
+        if isinstance(choice, int) and 1 <= choice <= len(options):
+            if relation not in first_pick:
+                first_pick[relation] = options[choice - 1].split(") ", 1)[1]
+            elif vote_same:
+                result["choice"] = next(i for i, x in enumerate(options, 1)
+                                        if x.split(") ", 1)[1] == first_pick[relation])
+            else:
+                result["choice"] = 0
+        return json.dumps(result)
     chat.calls = calls
     return chat
 
@@ -93,7 +111,7 @@ def test_llm_choice_is_restricted_to_candidates():
          "edges": [_e("e1", "a", "b", "연비에 영향"), _e("e2", "b", "a", "아주 특이한 관계")]}
     chat = _fake_chat({"choice": 99})                 # out of range for every relation
     summary = _link(g, chat)
-    assert len(chat.calls) == 2                       # one question per relation, no verification
+    assert len(chat.calls) == 4                       # expand + select per relation, no verification
     assert set(summary["unlinked"]) == {"연비에 영향", "아주 특이한 관계"}
     assert all("wikidata" not in e for e in g["edges"])
 
@@ -103,7 +121,7 @@ def test_llm_choice_by_number_maps_to_candidate():
          "edges": [_e("e1", "a", "b", "학교를 졸업함"), _e("e2", "b", "a", "아주 특이한 관계")]}
     chat = _fake_chat(lambda user: {"choice": 2 if "학교를 졸업함" in user else 0})
     summary = _link(g, chat)
-    prompt = next(c for c in chat.calls if "학교를 졸업함" in c)
+    prompt = next(c for c in chat.calls if "학교를 졸업함" in c and "Options:" in c)
     lines = prompt.splitlines()
     assert any(x.startswith("2) ") for x in lines) and "0) none of these" in lines
     assert not any(line.startswith("1) P") for line in prompt.splitlines())   # no ids to copy
@@ -117,7 +135,7 @@ def test_llm_choice_links_candidate():
 
     chat = _fake_chat({"choice": 1})
     summary = _link(g, chat)
-    assert len(chat.calls) == 2                       # select + verify
+    assert len(chat.calls) == 5                       # expand, select, second vote, meaning, direction
     assert summary["linked"]["학교를 졸업함"]["method"] == "llm"
     assert g["edges"][0]["wikidata"]["id"] == summary["linked"]["학교를 졸업함"]["id"]
 
@@ -141,6 +159,97 @@ def test_verification_rejects_reversed_llm_link_without_flipping():
     summary = _link(g, _fake_chat({"choice": "P176"}, verify="b"))
     assert summary["linked"] == {} and summary["rejected"] == {"제조한 회사": "P176"}
     assert "wikidata" not in g["edges"][0]
+
+
+def test_expansion_retrieves_english_names():
+    # "부인" has no spouse candidate by itself; the English name brings it in.
+    g = {"nodes": [_n("a", "찰스"), _n("b", "에마")], "edges": [_e("e1", "a", "b", "부인")]}
+    assert "P26" not in {c["id"] for c in rag.with_inverses(rag.search("부인", 5, use_embeddings=False))}
+    calls = []
+
+    async def chat(system, user):
+        calls.append(user)
+        if "terms" in system:
+            return json.dumps({"terms": ["spouse"]})
+        if "statements" in system:
+            return json.dumps({"reason": "", "answer": "a"})
+        if "proposed Wikidata property" in system:
+            return json.dumps({"reason": "", "answer": "yes"})
+        return json.dumps({"choice": "P26"})
+    summary = _link(g, chat)
+    assert summary["linked"]["부인"] == {"id": "P26", "method": "llm"}
+
+
+def test_expansion_failure_keeps_the_phrase_candidates():
+    g = {"nodes": [_n("a", "A"), _n("b", "B")], "edges": [_e("e1", "a", "b", "학교를 졸업함")]}
+    first = rag.with_inverses(rag.search("학교를 졸업함", 5, use_embeddings=False))[0]["id"]
+
+    async def chat(system, user):
+        if "terms" in system:
+            raise RuntimeError("timeout")
+        if "statements" in system:
+            return json.dumps({"reason": "", "answer": "a"})
+        if "proposed Wikidata property" in system:
+            return json.dumps({"reason": "", "answer": "yes"})
+        return json.dumps({"choice": first})
+    assert "학교를 졸업함" in _link(g, chat)["linked"]
+
+
+def test_symmetric_property_passes_either_direction():
+    pid = next(p for p, v in rag.load_properties().items() if v.get("symmetric"))
+    label = "아주 드문 인접 표현"
+    g = {"nodes": [_n("a", "A"), _n("b", "B")], "edges": [_e("e1", "a", "b", label)]}
+
+    async def chat(system, user):
+        if "terms" in system:
+            return json.dumps({"terms": [rag.load_properties()[pid]["label"]["en"]]})
+        if "statements" in system:
+            return json.dumps({"reason": "", "answer": "b"})
+        if "proposed Wikidata property" in system:
+            return json.dumps({"reason": "", "answer": "yes"})
+        return json.dumps({"choice": pid})
+    assert _link(g, chat)["linked"][label]["id"] == pid
+
+
+def test_comparative_phrases_are_never_linked():
+    g = {"nodes": [_n("a", "민수"), _n("b", "지훈")],
+         "edges": [_e("e1", "a", "b", "보다 키가 큼"), _e("e2", "b", "a", "taller than")]}
+    chat = _fake_chat({"choice": 1})
+    summary = _link(g, chat)
+    assert summary["linked"] == {} and chat.calls == []
+
+
+def test_measured_order_properties_are_not_offered():
+    g = {"nodes": [_n("a", "A"), _n("b", "B")], "edges": [_e("e1", "a", "b", "더 큼")]}
+    seen = []
+
+    async def chat(system, user):
+        if "terms" in system:
+            return json.dumps({"terms": ["greater than"]})
+        seen.append(user)
+        return json.dumps({"choice": 0})
+    _link(g, chat)
+    assert seen and not any("greater than" in x.lower() for x in seen)
+
+
+def test_pick_must_survive_a_reordered_second_vote():
+    g = {"nodes": [_n("a", "A"), _n("b", "B")], "edges": [_e("e1", "a", "b", "학교를 졸업함")]}
+    summary = _link(g, _fake_chat({"choice": 1}, vote_same=False))
+    assert summary["linked"] == {} and summary["rejected_by"] == {"학교를 졸업함": ["vote"]}
+    assert "wikidata" not in g["edges"][0]
+
+
+def test_pick_must_mean_the_same_as_the_phrase():
+    g = {"nodes": [_n("a", "A"), _n("b", "B")], "edges": [_e("e1", "a", "b", "학교를 졸업함")]}
+    summary = _link(g, _fake_chat({"choice": 1}, meaning="no"))
+    assert summary["linked"] == {} and summary["rejected_by"] == {"학교를 졸업함": ["meaning"]}
+
+
+def test_meaning_check_does_not_apply_to_exact_matches():
+    g = {"nodes": [_n("phone", "아이폰"), _n("apple", "애플")],
+         "edges": [_e("e1", "phone", "apple", "제조사")]}
+    assert _link(g, _fake_chat({}, meaning="no"))["linked"]["제조사"]["method"] == "exact"
+
 
 
 def test_verification_never_flips_exact_matches():

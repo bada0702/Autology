@@ -10,6 +10,8 @@ matched against Wikidata's item-valued properties
    when available.
 2. A unique exact label/alias match links directly; otherwise an LLM picks a
    candidate or answers "none" — a wrong forced link is worse than no link.
+   An LLM pick must also survive a second vote over the reversed option list
+   and a check that the phrase is something a property can record.
 3. A linked property is related to the core vocabulary:
    - equivalent (EQUIVALENTS table) → the edge is rewritten to the core relation;
    - subproperty (Wikidata P1647 chain reaches an equivalent) → the edge stays
@@ -328,6 +330,21 @@ def with_inverses(cands: list[dict]) -> list[dict]:
 ChatFn = Callable[[str, str], Awaitable[str]]
 
 SELECT_CONCURRENCY = 4
+MAX_TERMS = 3         # English names searched per relation
+TERM_K = 3            # candidates kept per English name
+MAX_CANDIDATES = 12   # options shown to the model per relation
+
+# Wikidata states these between classes for a measured order; "A is taller
+# than B" between two things is a passing comparison, not this property.
+NON_RELATIONAL = {"P5135", "P5136"}
+_COMPARATIVE = re.compile(r"보다 |\bthan\b", re.I)
+
+_EXPAND_SYSTEM = (
+    "You get a relation phrase from a knowledge graph and example edges (source → target). "
+    "Give up to 3 short English names for this relation, worded the way a Wikidata property "
+    "label is worded, for the reading 'source RELATION target'. "
+    'Return JSON only: {"terms": ["<name>", ...]}'
+)
 
 _SELECT_SYSTEM = (
     "You map one free-text relation from a knowledge graph to a Wikidata property. "
@@ -340,13 +357,25 @@ _SELECT_SYSTEM = (
     'Return JSON only: {"reason": "<one sentence>", "choice": <option number>}'
 )
 
+_MEANING_SYSTEM = (
+    "You get a relation phrase from a knowledge graph, an example edge, and a proposed "
+    "Wikidata property. Say what kind of relation the phrase is: a lasting fact about the "
+    "source (where, who, what it is made of, what it belongs to), or something subjective or "
+    "casual (likes, goes well with, gets along with, is often compared to, is eaten with). "
+    "Answer \"no\" if it is subjective or casual, or if the property is about a different "
+    "thing. Otherwise answer \"yes\", even when the wording differs from the property. "
+    "First write one short sentence. "
+    'Return JSON only: {"reason": "<one sentence>", "answer": "yes" | "no"}'
+)
+
 _VERIFY_SYSTEM = (
-    "Each item gives a Wikidata property and two statements of the form "
+    "You get a Wikidata property and two statements of the form "
     "'SUBJECT —[PROPERTY]→ VALUE' (the subject has this property, and its value is VALUE). "
-    "Statement a and b use the same two entities in opposite directions. "
-    "For each item answer \"a\" or \"b\" for the statement that is true, or \"none\" if "
-    "neither is a correct use of the property. "
-    'Return JSON only: {"answers": {"<item number>": "a" | "b" | "none"}}'
+    "Statements a and b use the same two entities in opposite directions. "
+    "First write one short sentence on which entity is the subject of this property, then "
+    "answer \"a\" or \"b\" for the statement that is true, or \"none\" if neither is a "
+    "correct use of the property. "
+    'Return JSON only: {"reason": "<one sentence>", "answer": "a" | "b" | "none"}'
 )
 
 
@@ -410,24 +439,54 @@ async def link_relations(graph: dict[str, Any], chat: ChatFn | None = None,
     def lbl(nid):
         return (nodes.get(nid) or {}).get("label") or nid
 
+    props = load_properties()
     chosen: dict[str, tuple[str, str]] = {}   # label → (pid, method)
+    rejected_by: dict[str, list[str]] = {}    # label → checks its pick failed
     for label, cands in candidates.items():
         exact = [c for c in cands if c["exact"]]
         if len(exact) == 1:
             chosen[label] = (exact[0]["id"], "exact")
 
-    pending = [label for label in custom if label not in chosen]
+    # A comparison between two entities is not a fact any property states.
+    pending = [label for label in custom
+               if label not in chosen and not _COMPARATIVE.search(_norm(label) + " ")]
     if pending and chat is not None:
         # One numbered question per relation: small models miscopy property ids
         # and lose items in a batch, and one timeout no longer costs them all.
         sem = asyncio.Semaphore(SELECT_CONCURRENCY)
 
-        async def select(label):
+        async def expand(label):
+            # Korean aliases are sparse on Wikidata, so "부인" alone never
+            # retrieves "spouse". Search the model's English names as well.
             examples = "; ".join(f"{lbl(e['source'])} → {lbl(e['target'])}" for e in custom[label][:3])
+            async with sem:
+                try:
+                    answer = _extract_json(await chat(_EXPAND_SYSTEM, f'Phrase: "{label}"\nExamples: {examples}'))
+                except Exception as exc:  # noqa: BLE001 — retrieval still has the phrase itself
+                    log.warning("relation query expansion failed for %r: %r", label, exc)
+                    return
+            terms = answer.get("terms")
+            terms = [t for t in terms if isinstance(t, str) and t.strip()][:MAX_TERMS] if isinstance(terms, list) else []
+            found: list[dict] = []
+            for term in terms:
+                found += await asyncio.to_thread(search, term, TERM_K, use_embeddings)
+            exact_hits = [c for c in found if c["exact"]]
+            others = [c for c in found if not c["exact"]]
+            merged = with_inverses(exact_hits) + candidates[label] + with_inverses(others)
+            candidates[label] = list({c["id"]: c for c in reversed(merged)}.values())[::-1][:MAX_CANDIDATES]
+
+        await asyncio.gather(*(expand(x) for x in pending))
+
+        for label in pending:
+            candidates[label] = [c for c in candidates[label] if c["id"] not in NON_RELATIONAL]
+
+        async def select(label, reverse=False):
+            examples = "; ".join(f"{lbl(e['source'])} → {lbl(e['target'])}" for e in custom[label][:3])
+            cands = candidates[label][::-1] if reverse else candidates[label]
             options = "\n".join(
                 f"{i}) {_prop_text(c)}"
                 + (" (reverse direction of another option)" if c.get("inverse_of") else "")
-                for i, c in enumerate(candidates[label], 1)
+                for i, c in enumerate(cands, 1)
             )
             user = f'Relation: "{label}"\nExamples: {examples}\nOptions:\n{options}\n0) none of these'
             async with sem:
@@ -436,45 +495,78 @@ async def link_relations(graph: dict[str, Any], chat: ChatFn | None = None,
                 except Exception as exc:  # noqa: BLE001 — linking is best-effort
                     log.warning("relation linking LLM call failed for %r: %r", label, exc)
                     return None
-            return _pick_option(answer.get("choice"), candidates[label])
+            return _pick_option(answer.get("choice"), cands)
 
         for label, cand in zip(pending, await asyncio.gather(*(select(x) for x in pending))):
             if cand:
                 chosen[label] = (cand["id"], "llm")
 
-    props = load_properties()
+        # A pick that changes when the same options are listed in another order
+        # was a guess: asking again is the cheapest test of that.
+        picked = [label for label in pending if label in chosen]
+        for label, again in zip(picked, await asyncio.gather(*(select(x, reverse=True) for x in picked))):
+            if not again or again["id"] != chosen[label][0]:
+                rejected_by.setdefault(label, []).append("vote")
+
+        # The direction check below never sees the phrase, so a true statement
+        # under an unrelated property would pass it. A strict "means the same"
+        # question cost a quarter of recall on small models; this one only
+        # screens out phrases no property records.
+        async def same_meaning(label):
+            e = custom[label][0]
+            user = (f'Relation: "{label}"\nExample: {lbl(e["source"])} → {lbl(e["target"])}\n'
+                    f"Property: {_prop_text(props[chosen[label][0]])}")
+            async with sem:
+                try:
+                    answer = _extract_json(await chat(_MEANING_SYSTEM, user))
+                except Exception as exc:  # noqa: BLE001 — linking is best-effort
+                    log.warning("relation meaning check failed for %r: %r", label, exc)
+                    return False
+            return str(answer.get("answer", "")).strip().lower() == "yes"
+
+        for label, same in zip(picked, await asyncio.gather(*(same_meaning(x) for x in picked))):
+            if not same:
+                rejected_by.setdefault(label, []).append("meaning")
+
     rejected: dict[str, str] = {}
     if chosen and chat is not None:
         # Read every link back in both directions and let the model pick the
         # true one. A contrastive choice is far more reliable for small models
         # than judging one sentence, and it filters out reversed directions.
         items = list(chosen.items())
-        blocks = []
-        for i, (label, (pid, _)) in enumerate(items, 1):
+        sem = asyncio.Semaphore(SELECT_CONCURRENCY)
+
+        async def verify(label, pid):
             e = custom[label][0]
             s, t, prop = lbl(e["source"]), lbl(e["target"]), _prop_text(props[pid])
-            blocks.append(f'{i}. property: {prop}\n   a) "{s}" —[{prop.split(":")[0]}]→ "{t}"\n'
-                          f'   b) "{t}" —[{prop.split(":")[0]}]→ "{s}"')
-        try:
-            answers = _unwrap(_extract_json(await chat(_VERIFY_SYSTEM, "\n".join(blocks))), "answers")
-            for i, (label, (pid, method)) in enumerate(items, 1):
-                ans = str(answers.get(str(i), answers.get(i, "none"))).strip().lower()
-                if ans == "a":
-                    continue
-                if method == "exact":
-                    # The phrase *is* the property's name, so the edge already
-                    # reads in the property's direction; small models still
-                    # answer "b" for correct ones (수도→P36 became P1376).
-                    # Verification may reject the sense, never flip it.
-                    if ans != "b":
-                        rejected[label] = pid
-                    continue
-                # Not flipped to the inverse: 5 of 6 such flips were wrong in
-                # evaluation, and inverse properties are offered at selection.
-                rejected[label] = pid
-        except Exception as exc:  # noqa: BLE001
-            log.warning("relation link verification failed: %r", exc)
-            rejected = {label: pid for label, (pid, m) in items if m == "llm"}
+            name = prop.split(":")[0]
+            user = f'Property: {prop}\na) "{s}" —[{name}]→ "{t}"\nb) "{t}" —[{name}]→ "{s}"'
+            async with sem:
+                try:
+                    answer = _extract_json(await chat(_VERIFY_SYSTEM, user))
+                except Exception as exc:  # noqa: BLE001 — linking is best-effort
+                    log.warning("relation link verification failed for %r: %r", label, exc)
+                    return None
+            return str(answer.get("answer", "none")).strip(" ()").lower()
+
+        answers = await asyncio.gather(*(verify(label, pid) for label, (pid, _) in items))
+        for (label, (pid, method)), ans in zip(items, answers):
+            if ans == "a":
+                continue
+            if ans is None:                      # no verdict: only exact matches stand
+                if method != "exact":
+                    rejected[label] = pid
+                continue
+            # "b" is harmless for an exact match (the phrase is the property's
+            # own name, so the edge already reads in its direction) and for a
+            # symmetric property. Otherwise the pick is dropped, not flipped:
+            # 5 of 6 flips were wrong, and inverses are offered at selection.
+            if ans == "b" and (method == "exact" or props[pid].get("symmetric")):
+                continue
+            rejected[label] = pid
+            rejected_by.setdefault(label, []).append("direction")
+        for label in rejected_by:
+            rejected[label] = chosen[label][0]
         for label in rejected:
             chosen.pop(label, None)
     for label, (pid, method) in chosen.items():
@@ -484,6 +576,7 @@ async def link_relations(graph: dict[str, Any], chat: ChatFn | None = None,
     return {
         "linked": {label: {"id": pid, "method": m} for label, (pid, m) in chosen.items()},
         "rejected": rejected,
+        "rejected_by": rejected_by,
         "unlinked": [label for label in custom if label not in chosen],
     }
 

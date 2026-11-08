@@ -36,7 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 DATA = os.path.join(HERE, "data")
 OFFLINE = ("normalization", "normalization-heldout", "retrieval", "reasoning", "paths")
-LLM = ("relations", "entities", "relations-heldout", "entities-heldout", "repair")
+LLM = ("relations", "entities", "relations-heldout", "relations-heldout2", "relations-heldout3", "entities-heldout", "repair")
 
 
 def load(name):
@@ -264,8 +264,8 @@ async def eval_llm(suite, repeat):
         "entities": (_entities_once, _entity_metrics, _fail_lines_ent,
                      ["precision %", "recall %", "abstention %", "abstention on those %", "gold in candidates %",
                       "selection acc. when gold present %"]),
-    }[suite.replace("-heldout", "")]
-    data = suite.replace("-heldout", "") + ("_heldout.json" if suite.endswith("-heldout") else ".json")
+    }[suite.split("-")[0]]
+    data = suite.replace("-", "_") + ".json"
     runs, secs = [], []
     for i in range(repeat):
         t0 = time.time()
@@ -282,7 +282,7 @@ async def eval_llm(suite, repeat):
     fails = Counter(line for r in runs for line in set(fail_fn(r)))
     lines = [f"{n}/{repeat}  {line}" for line, n in fails.most_common()]
     title = "relation linking (LLM, end to end)" if suite.startswith("relations") else "entity linking (LLM + Wikidata)"
-    title += ", held-out" if suite.endswith("-heldout") else ""
+    title += f", {suite.split('-')[1]}" if "-" in suite else ""
     show(title, agg, lines)
     return {"metrics": agg, "per_run": per, "runs": runs}
 
