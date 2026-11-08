@@ -90,6 +90,9 @@ class SparqlRequest(BaseModel):
     query: str
     format: str = "turtle"
 
+class ReasonRequest(BaseModel):
+    graph: Dict[str, Any]
+
 class ShaclRequest(BaseModel):
     data: str
     shapes: str
@@ -192,7 +195,7 @@ async def health():
 @app.get("/api/semantic/capabilities")
 async def semantic_capabilities():
     """Report availability of optional semantic-web engines."""
-    caps = {"rdflib": False, "pyshacl": False}
+    caps = {"rdflib": False, "pyshacl": False, "reasoner": True}
     try:
         import rdflib  # noqa: F401
         caps["rdflib"] = True
@@ -237,6 +240,16 @@ async def semantic_sparql(req: SparqlRequest):
         raise HTTPException(503, str(exc))
     except Exception as exc:
         raise HTTPException(400, f"SPARQL failed: {exc}")
+
+
+@app.post("/api/semantic/reason")
+async def semantic_reason(req: ReasonRequest):
+    """Infer edges (OWL 2 RL subset, with provenance) and validate the graph."""
+    from reasoning import analyze
+    try:
+        return analyze(req.graph)
+    except Exception as exc:
+        raise HTTPException(400, f"Reasoning failed: {exc}")
 
 
 @app.post("/api/semantic/shacl")

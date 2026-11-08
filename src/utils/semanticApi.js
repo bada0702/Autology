@@ -29,6 +29,13 @@ export async function importWithRDFLib(content, format = 'turtle') {
   return data.graph;
 }
 
+// OWL 2 RL reasoning (with provenance) + rule-based validation.
+// Returns { inferred: Edge[], issues: Issue[], stats }.
+export async function reasonWithBackend(graph) {
+  const edges = (graph.edges || []).filter(e => !e.inferred);
+  return postJSON('/reason', { graph: { nodes: graph.nodes || [], edges } });
+}
+
 export async function runSPARQL(content, query, format = 'turtle') {
   return postJSON('/sparql', { content, query, format });
 }

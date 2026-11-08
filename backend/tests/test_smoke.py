@@ -62,6 +62,26 @@ def test_semantic_export_turtle():
     assert r.json().get("content"), "export content is empty"
 
 
+def test_semantic_reason():
+    graph = {
+        "nodes": [
+            {"id": "a", "label": "A", "type": "Instance"},
+            {"id": "b", "label": "B", "type": "Instance"},
+            {"id": "c", "label": "C", "type": "Instance"},
+        ],
+        "edges": [
+            {"id": "e1", "source": "a", "target": "b", "label": "part-of"},
+            {"id": "e2", "source": "b", "target": "c", "label": "part-of"},
+        ],
+    }
+    with TestClient(app) as client:
+        r = client.post("/api/semantic/reason", json={"graph": graph})
+    assert r.status_code == 200
+    body = r.json()
+    assert [(e["source"], e["target"]) for e in body["inferred"]] == [("a", "c")]
+    assert "issues" in body and "stats" in body
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

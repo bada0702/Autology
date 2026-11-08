@@ -17,6 +17,8 @@ import re
 import httpx
 from models.job import Job, JobStatus, AgentStatus
 from memory.store import memory_store
+from vocabulary import normalize_graph, prompt_block
+from reasoning import analyze, issues_for_prompt
 
 OLLAMA_BASE  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
@@ -166,9 +168,10 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
         memory_applied = []
         sys2 = (
             "당신은 지식 그래프 전문가입니다. 추출된 노드 간 의미 있는 관계를 분석하세요.\n"
+            + f"\n{prompt_block(lang)}\n"
             + (f"\n{memory_context}\n" if memory_context else "")
             + "JSON 배열만 반환하세요: "
-            '[{"id":"e1","source":"n1","target":"n2","label":"is-a","style":"solid","inferred":false}]'
+            '[{"id":"e1","source":"n1","target":"n2","label":"rdfs:subClassOf","style":"solid","inferred":false}]'
         )
         edges_text = await _chat(sys2, f"노드:\n{nodes_text[:node_budget]}\n\n리서치:\n{research_text[:2000]}")
 
@@ -206,7 +209,9 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
             f"노드 목표: {max_n}개 이상. x: 100-{x_max}, y: 100-{y_max} 범위 균등 배치.\n"
             "Class는 y 낮게, Instance는 중간, Literal은 y 높게."
             f"{schema_hint}\n"
-            f"반드시 {lang}로 레이블. 설명 없이 JSON만 반환:\n{GRAPH_SCHEMA}"
+            f"노드 레이블은 반드시 {lang}로. 엣지 label은 관계 id를 그대로 유지하세요(번역 금지).\n"
+            f"{prompt_block(lang)}\n"
+            f"설명 없이 JSON만 반환:\n{GRAPH_SCHEMA}"
         )
         final_text = await _chat(
             sys4,
@@ -231,9 +236,11 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
                 "5) 고립된 서브그래프\n\n"
                 f"반드시 아래 JSON 스키마로만 반환:\n{CRITIC_SCHEMA}"
             )
+            rule_issues = issues_for_prompt(analyze(graph)["issues"])
             critic_text = await _chat(
                 sys_critic,
                 f"그래프 JSON:\n{json.dumps(graph, ensure_ascii=False)[:3000]}"
+                + (f"\n\n규칙 기반 검증기가 확정한 문제(반드시 반영):\n{rule_issues}" if rule_issues else "")
             )
             critic_result = _extract_json(critic_text) or {}
             quality_score = critic_result.get("quality_score", 100)
@@ -257,7 +264,9 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
                     f"문제점:\n" + "\n".join(f"  - {iss['description']}" for iss in issues[:5]) + "\n"
                     f"수정 지시:\n" + "\n".join(
                         f"  - {r['action']}: {r.get('reason','')}" for r in refinements[:5]
-                    ) + "\n\n위 피드백을 반영하여 그래프를 수정하세요. JSON만 반환:\n{GRAPH_SCHEMA}"
+                    ) + "\n\n위 피드백을 반영하여 그래프를 수정하세요. 엣지 label은 관계 id를 유지하세요.\n"
+                    + prompt_block(lang)
+                    + f"\nJSON만 반환:\n{GRAPH_SCHEMA}"
                 )
                 refined_text = await _chat(
                     f"당신은 온톨로지 에디터입니다. 비판 에이전트의 피드백으로 그래프를 정제하세요. {schema_hint}",
@@ -269,6 +278,9 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
                     current_graph_text = refined_text
 
         # ── Attach metadata ───────────────────────────────────────
+        normalize_graph(graph)
+        report = analyze(graph)
+        graph["validation_report"] = {"issues": report["issues"], "stats": report["stats"]}
         graph["schema_evolution"] = schema_evolution
         graph["memory_applied"]   = memory_applied
 

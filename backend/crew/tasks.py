@@ -2,6 +2,8 @@
 
 from crewai import Task
 
+from vocabulary import prompt_block
+
 CRITIC_SCHEMA = """
 {
   "quality_score": 85,
@@ -29,33 +31,23 @@ GRAPH_JSON_SCHEMA = """
 }
 """
 
-def make_research_task(agent, topic: str, options: dict) -> Task:
-    depth = options.get("depth", "medium")
-    lang  = options.get("language", "Korean")
-    return Task(
-        description=(
-            f"Research the topic '{topic}' thoroughly. "
-            f"Search depth: {depth}. Preferred language: {lang}. "
-            "Collect definitions, key concepts, entities, and their relationships. "
-            "Output a structured summary of your findings with clear sections."
-        ),
-        expected_output=(
-            "A comprehensive text summary (1000-3000 words) covering: "
-            "1) Core concepts and definitions, "
-            "2) Key entities and their attributes, "
-            "3) Relationships between entities, "
-            "4) Important classifications or taxonomies."
-        ),
-        agent=agent,
-    )
 
-def make_extraction_task(agent, research_task: Task, max_nodes: int = 30) -> Task:
+# Every task is executed in its own Crew, so `context=[other_task]` is not a
+# reliable channel (a task that never ran, or a stale earlier run, yields the
+# wrong text). All data flows through explicit {placeholders} filled by
+# Crew.kickoff(inputs=...). User text such as the topic is passed the same way
+# and never f-string'ed into a template, so braces in it cannot break
+# interpolation.
+
+def make_extraction_task(agent, max_nodes: int = 30) -> Task:
     return Task(
         description=(
-            f"From the research text provided, extract up to {max_nodes} key entities. "
+            "Topic: {topic}\n\n"
+            "Research text:\n{research_output}\n\n"
+            f"From the research text above, extract up to {max_nodes} key entities of the topic. "
             "Classify each as: Class (abstract concept), Instance (concrete entity), "
             "or Literal (specific value). Include a short description for each. "
-            "Output a JSON array of node objects."
+            "Write labels in {language}. Output a JSON array of node objects."
         ),
         expected_output=(
             f"A JSON array of up to {max_nodes} nodes, each with: "
@@ -63,30 +55,32 @@ def make_extraction_task(agent, research_task: Task, max_nodes: int = 30) -> Tas
             "description (1 sentence), properties (array of key-value pairs)."
         ),
         agent=agent,
-        context=[research_task],
     )
 
-def make_relation_task(agent, extraction_task: Task) -> Task:
+def make_relation_task(agent) -> Task:
     return Task(
         description=(
-            "Analyze the extracted entities and identify semantic relationships between them. "
-            "Use relationship types like: is-a, part-of, has-instance, has-value, "
-            "related-to, located-at, participates-in, or custom domain labels. "
+            "Topic: {topic}\n\n"
+            "Extracted entities (JSON):\n{nodes}\n\n"
+            "Identify semantic relationships between these entities, using their ids.\n"
+            f"{prompt_block()}\n"
+            "{memory_context}\n"
             "Output a JSON array of edge objects."
         ),
         expected_output=(
             "A JSON array of edges, each with: "
-            "id (string), source (node id), target (node id), label (relationship type), "
+            "id (string), source (node id), target (node id), label (relation id), "
             "style ('solid'), inferred (false)."
         ),
         agent=agent,
-        context=[extraction_task],
     )
 
-def make_validation_task(agent, extraction_task: Task, relation_task: Task) -> Task:
+def make_validation_task(agent) -> Task:
     return Task(
         description=(
-            "Review the nodes and edges produced. Check for: "
+            "Nodes (JSON):\n{nodes}\n\n"
+            "Edges (JSON):\n{edges}\n\n"
+            "Review the nodes and edges above. Check for: "
             "1) Self-loops or duplicate edges, "
             "2) Orphaned nodes (no connections), "
             "3) Type inconsistencies (e.g. Literal connected to Literal), "
@@ -100,14 +94,14 @@ def make_validation_task(agent, extraction_task: Task, relation_task: Task) -> T
             "suggested_fixes (array of {action, node_or_edge_id, detail})."
         ),
         agent=agent,
-        context=[extraction_task, relation_task],
     )
 
-def make_critic_task(agent, editor_task: Task, topic: str) -> Task:
+def make_critic_task(agent) -> Task:
     return Task(
         description=(
-            f"Perform a cross-verification of the final ontology graph for '{topic}'. "
-            "Check for: "
+            "Ontology graph for '{topic}' (JSON):\n{graph_json}\n\n"
+            "Rule-based validator findings (already confirmed, must be reflected):\n{rule_issues}\n\n"
+            "Perform a cross-verification of this graph. Check for: "
             "1) Circular dependencies (A→B→A), "
             "2) Type inconsistencies (Literal→Literal edges, Class used as leaf value), "
             "3) Logical contradictions (conflicting relationship directions), "
@@ -120,29 +114,30 @@ def make_critic_task(agent, editor_task: Task, topic: str) -> Task:
             "Set approved=true if quality_score >= 80, false otherwise."
         ),
         agent=agent,
-        context=[editor_task],
     )
 
 
-def make_editor_task(
-    agent,
-    extraction_task: Task,
-    relation_task: Task,
-    validation_task: Task,
-    topic: str,
-) -> Task:
+def make_editor_task(agent) -> Task:
+    """Builds the final graph. For refinement, {validation} carries the critic
+    feedback and {current_graph} the graph being refined."""
     return Task(
         description=(
-            f"Produce the final ontology graph for '{topic}' in Autology JSON format. "
-            "Apply fixes from the validation report. "
+            "Topic: {topic}\n\n"
+            "Nodes (JSON):\n{nodes}\n\n"
+            "Edges (JSON):\n{edges}\n\n"
+            "Validation report and feedback:\n{validation}\n\n"
+            "Current graph to refine (empty on the first pass):\n{current_graph}\n\n"
+            "Produce the final ontology graph in Autology JSON format, applying every fix "
+            "from the report and feedback. Write node labels in {language}. "
             "Assign spatial coordinates: x in [100,1200], y in [100,800]. "
             "Class nodes at top (y≈150), Instance nodes in middle (y≈400), Literal at bottom (y≈650). "
             "Space nodes ~200px apart horizontally. "
+            "Keep every edge label exactly as a relation id from this list (never translate it):\n"
+            f"{prompt_block()}\n"
             "Return ONLY valid JSON, no markdown fences, no extra text."
         ),
         expected_output=(
             f"Valid JSON matching this schema exactly:\n{GRAPH_JSON_SCHEMA}"
         ),
         agent=agent,
-        context=[extraction_task, relation_task, validation_task],
     )

@@ -149,7 +149,10 @@ const Edge = ({ edge }) => {
 
       {/* Inferred lightning badge */}
       {edge.inferred && (
-        <text x={midX + 28} y={midY + 4} fontSize={11} fill="#a78bfa">⚡</text>
+        <text x={midX + 28} y={midY + 4} fontSize={11} fill="#a78bfa">
+          ⚡
+          {edge.explanation && <title>{`추론 근거: ${edge.explanation}`}</title>}
+        </text>
       )}
     </g>
   );
