@@ -20,25 +20,42 @@ from memory.store import memory_store
 from vocabulary import normalize_graph, prompt_block
 from reasoning import analyze, issues_for_prompt
 
+
+async def quick_chat(system: str, user: str) -> str:
+    """Chat without thinking mode, for short structured choices (e.g. picking
+    a vocabulary candidate). Thinking can exceed the request timeout there."""
+    return await _chat(system, user, think=False)
+
+
+async def link_vocabulary(graph: dict) -> dict:
+    """Link custom relations to Wikidata (best effort) and re-normalize."""
+    try:
+        from vocab_rag import link_relations
+        summary = await link_relations(graph, quick_chat)
+        normalize_graph(graph)
+        return summary
+    except Exception as exc:  # noqa: BLE001 — never fail generation over linking
+        return {"error": str(exc)}
+
 OLLAMA_BASE  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 MAX_REFINEMENT_ITER = 2   # Maximum critic→editor refinement cycles
 
 
-async def _chat(system: str, user: str) -> str:
+async def _chat(system: str, user: str, think: bool | None = None) -> str:
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+        "stream": False,
+    }
+    if think is not None:
+        payload["think"] = think
     async with httpx.AsyncClient(timeout=180) as client:
-        r = await client.post(
-            f"{OLLAMA_BASE}/api/chat",
-            json={
-                "model": OLLAMA_MODEL,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": user},
-                ],
-                "stream": False,
-            },
-        )
+        r = await client.post(f"{OLLAMA_BASE}/api/chat", json=payload)
         r.raise_for_status()
         return r.json().get("message", {}).get("content", "")
 
@@ -279,6 +296,7 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
 
         # ── Attach metadata ───────────────────────────────────────
         normalize_graph(graph)
+        graph["vocabulary_links"] = await link_vocabulary(graph)
         report = analyze(graph)
         graph["validation_report"] = {"issues": report["issues"], "stats": report["stats"]}
         graph["schema_evolution"] = schema_evolution

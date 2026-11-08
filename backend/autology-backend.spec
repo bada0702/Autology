@@ -24,7 +24,7 @@ a = Analysis(
     ['run_backend.py'],
     pathex=[],
     binaries=[],
-    datas=[('../dist', 'dist')] + _semantic_datas,
+    datas=[('../dist', 'dist'), ('resources', 'resources')] + _semantic_datas,
     hiddenimports=[
         'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto',
         'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto',

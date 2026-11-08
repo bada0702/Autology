@@ -145,3 +145,6 @@ backend/*.spec
 # Runtime / build artifacts
 .pids/
 *.exe
+
+# Wikidata vocabulary embedding cache (rebuilt automatically)
+backend/data/*.npy

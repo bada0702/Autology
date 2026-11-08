@@ -46,6 +46,7 @@ RULE_TEXT = {
     "prp-spo2": "속성 체인",
     "cax-sco": "상위 클래스 상속",
     "cax-eqc": "동치 클래스",
+    "prp-spo1": "상위 속성",
 }
 
 
@@ -108,6 +109,22 @@ def _infer(direct, node_by_id):
         why[f] = (rule, premises)
         order.append(f)
         return True
+
+    # Custom relations linked to Wikidata (vocab_rag.py):
+    #   prp-spo1  (x p y), p ⊑ q            → (x q y)   (q may be inverted)
+    #   prp-trp   for properties Wikidata marks transitive
+    for e in direct:
+        if e.get("relation") != vocab.CUSTOM:
+            continue
+        base = Fact(e["source"], e["label"], e["target"])
+        if base not in facts:
+            continue
+        if (e.get("wikidata") or {}).get("transitive"):
+            transitive.add(e["label"])
+        sup = e.get("super_relation")
+        if sup:
+            s, o = (base.o, base.s) if e.get("super_inverse") else (base.s, base.o)
+            add(Fact(s, sup, o), "prp-spo1", [base])
 
     changed = True
     while changed and len(order) < MAX_INFERRED:
@@ -305,12 +322,19 @@ def _validate(raw, g, direct, closure, node_by_id):
                                  node_ids=[e["source"], e["target"]], edge_ids=[e["id"]]))
 
     custom = [e for e in direct if e.get("relation") == vocab.CUSTOM]
-    if custom:
-        names = sorted({e["label"] for e in custom})
+    unlinked = [e for e in custom if not e.get("wikidata")]
+    linked = [e for e in custom if e.get("wikidata")]
+    if unlinked:
+        names = sorted({e["label"] for e in unlinked})
         issues.append(_issue("info", "custom_relation",
                              f"어휘에 없는 관계 {len(names)}종 (추론 대상 아님): "
                              + ", ".join(names[:8]),
-                             edge_ids=[e["id"] for e in custom]))
+                             edge_ids=[e["id"] for e in unlinked]))
+    if linked:
+        names = sorted({f"{e['label']}→{e['wikidata']['id']}" for e in linked})
+        issues.append(_issue("info", "wikidata_linked",
+                             f"Wikidata 속성에 연결된 관계 {len(names)}종: " + ", ".join(names[:8]),
+                             edge_ids=[e["id"] for e in linked]))
 
     order = {"error": 0, "warn": 1, "info": 2}
     issues.sort(key=lambda i: order[i["severity"]])

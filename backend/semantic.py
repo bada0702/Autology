@@ -18,6 +18,7 @@ import vocabulary as vocab
 
 BASE_IRI = "http://autology.local/ontology#"
 BASE_NS = "http://autology.local/ontology"
+WIKIDATA_ENTITY = "http://www.wikidata.org/entity/"
 
 
 @dataclass
@@ -141,6 +142,22 @@ def graph_to_rdf(graph: dict[str, Any], include_inferred: bool = False):
             pred = relation_uri(res.label)
             g.add((pred, RDF.type, OWL.ObjectProperty))
             g.add((pred, RDFS.label, _text(res.label, Literal)))
+            # Vocabulary links made by vocab_rag.py
+            wd = edge.get("wikidata") or {}
+            if wd.get("id"):
+                g.add((pred, SKOS.exactMatch, URIRef(WIKIDATA_ENTITY + wd["id"])))
+                if wd.get("transitive"):
+                    g.add((pred, RDF.type, OWL.TransitiveProperty))
+            sup = edge.get("super_relation")
+            if sup in vocab.BY_ID and sup not in builtin:
+                if edge.get("super_inverse"):
+                    inv = relation_uri(f"inv-{sup}")
+                    g.add((inv, RDF.type, OWL.ObjectProperty))
+                    g.add((inv, OWL.inverseOf, relation_uri(sup)))
+                    g.add((pred, RDFS.subPropertyOf, inv))
+                else:
+                    g.add((pred, RDFS.subPropertyOf, relation_uri(sup)))
+                used_relations.add(sup)
         else:
             pred = relation_uri(res.relation)
             used_relations.add(res.relation)

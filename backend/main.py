@@ -49,6 +49,12 @@ async def lifespan(app: FastAPI):
     if not os.getenv("AUTOLOGY_SKIP_OLLAMA_AUTOSTART"):
         # 블로킹 호출이므로 이벤트 루프를 막지 않도록 스레드에서 실행
         await asyncio.get_event_loop().run_in_executor(None, ensure_ollama_running)
+        # Wikidata 관계 사전 임베딩 인덱스를 백그라운드에서 준비 (첫 빌드는 수 분)
+        try:
+            import vocab_rag
+            vocab_rag.warm_up()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("vocabulary warm-up skipped: %s", exc)
     yield
     shutdown_ollama()
 
@@ -92,6 +98,14 @@ class SparqlRequest(BaseModel):
 
 class ReasonRequest(BaseModel):
     graph: Dict[str, Any]
+
+class VocabSearchRequest(BaseModel):
+    query: str
+    k: int = 5
+
+class VocabLinkRequest(BaseModel):
+    graph: Dict[str, Any]
+    use_llm: bool = True
 
 class ShaclRequest(BaseModel):
     data: str
@@ -250,6 +264,33 @@ async def semantic_reason(req: ReasonRequest):
         return analyze(req.graph)
     except Exception as exc:
         raise HTTPException(400, f"Reasoning failed: {exc}")
+
+
+@app.get("/api/vocabulary/status")
+async def vocabulary_status():
+    """Wikidata relation dictionary and embedding index status."""
+    import vocab_rag
+    return vocab_rag.status()
+
+
+@app.post("/api/vocabulary/search")
+async def vocabulary_search(req: VocabSearchRequest):
+    """Retrieve Wikidata properties for a relation phrase."""
+    import vocab_rag
+    k = max(1, min(req.k, 20))
+    return {"results": await asyncio.to_thread(vocab_rag.search, req.query, k)}
+
+
+@app.post("/api/vocabulary/link")
+async def vocabulary_link(req: VocabLinkRequest):
+    """Normalize a graph and link its custom relations to Wikidata properties."""
+    import vocab_rag
+    from vocabulary import normalize_graph
+    from crew.ollama_pipeline import quick_chat
+    graph = normalize_graph(dict(req.graph, edges=[dict(e) for e in req.graph.get("edges", [])]))
+    summary = await vocab_rag.link_relations(graph, quick_chat if req.use_llm else None)
+    normalize_graph(graph)
+    return {"graph": graph, "summary": summary}
 
 
 @app.post("/api/semantic/shacl")

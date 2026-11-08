@@ -267,8 +267,12 @@ def normalize_graph(graph: dict[str, Any]) -> dict[str, Any]:
             out.append(edge)
             continue
         src, tgt = edge.get("source"), edge.get("target")
-        original = edge.get("original_label") or edge.get("label") or ""
-        res = resolve(original, type_by_id.get(src), type_by_id.get(tgt))
+        # Resolve the current label: canonical labels resolve to themselves,
+        # so re-normalizing is idempotent and keeps rewrites made after the
+        # first pass (e.g. Wikidata linking).
+        current = edge.get("label") or ""
+        original = edge.get("original_label") or current
+        res = resolve(current, type_by_id.get(src), type_by_id.get(tgt))
         if res.flipped:
             src, tgt = tgt, src
         if not src or not tgt or src == tgt:

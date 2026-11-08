@@ -167,6 +167,8 @@ async def _run_crewai_pipeline(job: Job, broadcast) -> None:
                 current_graph = refined_graph
 
         normalize_graph(current_graph)
+        from crew.ollama_pipeline import link_vocabulary
+        current_graph["vocabulary_links"] = await link_vocabulary(current_graph)
         report = analyze(current_graph)
         current_graph["validation_report"] = {"issues": report["issues"], "stats": report["stats"]}
         current_graph["schema_evolution"] = []
