@@ -40,12 +40,30 @@ _HANGUL = re.compile(r"[가-힣]")
 _SYSTEM = (
     "You link one knowledge-graph node to a Wikidata item. You get the node's label, type "
     "(Class = a kind of thing, Instance = one specific thing), description, neighbours and the "
-    "graph topic, followed by candidate items. Pick the candidate that denotes exactly the same "
-    "thing in this context. A Class node must map to a general concept, an Instance node to a "
-    "specific entity. If no candidate is clearly the same thing, answer null — a wrong link "
-    "merges unrelated entities, null does no harm. "
-    'Return JSON only: {"id": "<Q-id or null>"}'
+    "graph topic, followed by numbered options. Option 0 means none of the candidates. "
+    "First write one short sentence on what the node is in this graph, then choose the option "
+    "that denotes the same thing. A Class node maps to a general concept, an Instance node to a "
+    "specific entity. Choose 0 only when the node is something else: another sense of the word, "
+    "or something local such as an internal project, server, team or room. "
+    'Return JSON only: {"reason": "<one sentence>", "choice": <option number>}'
 )
+# Measured on fixed cases with qwen3.5:4b (3 runs each): asking for the choice
+# alone picked the correct, only candidate 40% of the time; reason-first with
+# an explicit "0) none" option and temperature 0 got 100%, still rejecting
+# local names that collide with Wikidata items (아폴로, 피닉스, 해바라기).
+
+
+def _pick(answer: dict, cands: list[dict]) -> dict | None:
+    """Candidate chosen by number ({"choice": 2}); a listed Q-id is accepted too."""
+    choice = answer.get("choice", answer.get("id"))
+    if isinstance(choice, str):
+        if choice.strip().isdigit():
+            choice = int(choice.strip())
+        else:
+            return next((c for c in cands if c["id"] == choice.strip()), None)
+    if isinstance(choice, int) and not isinstance(choice, bool) and 1 <= choice <= len(cands):
+        return cands[choice - 1]
+    return None
 
 # Items that are never the meaning of a node.
 _NON_ENTITY = re.compile(
@@ -63,7 +81,14 @@ def filter_candidates(label: str, items: list[dict]) -> list[dict]:
     items = [it for it in items if not _NON_ENTITY.search(it.get("description") or "")]
     exact = [it for it in items
              if _norm(it.get("match_text")) == _norm(label) or _norm(it.get("label")) == _norm(label)]
-    return exact or items
+    if not exact:
+        return items
+    # Search's own top hit stays even when its label differs: "아마존" ranks
+    # Amazon (아마존닷컴) first, while the only exact label is a chess piece.
+    # Only the top hit, so prefix matches like 테슬라 모델 S stay out.
+    if items[0] not in exact:
+        exact.append(items[0])
+    return exact
 
 _cache: dict[tuple[str, str], list[dict]] = {}
 
@@ -145,8 +170,10 @@ async def link_entities(graph: dict[str, Any], chat: ChatFn | None,
     # candidate lines makes small models mix up items.
     async def choose(node, cands):
         ctx = "; ".join(neighbours.get(node["id"], [])[:4])
-        lines = "\n".join(f"- {c['id']}: {c['label']} — {c['description'] or '(no description)'}"
-                          for c in cands)
+        # Numbered options: small models miscopy Q-ids (Q584 came back as
+        # Q230) but pick a small number reliably.
+        lines = "\n".join(f"{i}) {c['label']} — {c['description'] or '(no description)'}"
+                          for i, c in enumerate(cands, 1)) + "\n0) none of these"
         user = ((f"Graph topic: {topic}\n" if topic else "")
                 + f"Node: \"{node['label']}\" (type: {node.get('type', 'Class')})\n"
                 + (f"Description: {node['description']}\n" if node.get("description") else "")
@@ -158,8 +185,7 @@ async def link_entities(graph: dict[str, Any], chat: ChatFn | None,
             except Exception as exc:  # noqa: BLE001 — linking is best-effort
                 log.warning("entity linking LLM call failed for %r: %r", node["label"], exc)
                 return None
-        qid = answer.get("id")
-        return next((c for c in cands if c["id"] == qid), None)
+        return _pick(answer, cands)
 
     work = [(n, c) for n, c in zip(nodes, candidate_lists) if c]
     choices = await asyncio.gather(*(choose(n, c) for n, c in work))

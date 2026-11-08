@@ -3,6 +3,7 @@ Quality evaluation for the ontology pipeline.
 
 Suites (gold data in eval/data/):
   normalization  edge phrase → core relation (offline, deterministic)
+  normalization-heldout  same, on phrases never used to tune the vocabulary
   retrieval      relation phrase → Wikidata property, candidate recall@k (offline + bge-m3)
   relations      relation linking end to end with the LLM (precision / recall / abstention)
   entities       node → Wikidata item with the LLM and Wikidata search
@@ -34,8 +35,8 @@ from collections import Counter, defaultdict
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 DATA = os.path.join(HERE, "data")
-OFFLINE = ("normalization", "retrieval", "reasoning", "paths")
-LLM = ("relations", "entities")
+OFFLINE = ("normalization", "normalization-heldout", "retrieval", "reasoning", "paths")
+LLM = ("relations", "entities", "relations-heldout", "entities-heldout", "repair")
 
 
 def load(name):
@@ -62,9 +63,9 @@ def show(title, metrics, failures=()):
 TYPES = {"I": "Instance", "C": "Class"}
 
 
-def eval_normalization():
+def eval_normalization(name="normalization.json", title="normalization (phrase → core relation)"):
     import vocabulary as vocab
-    items = load("normalization.json")["items"]
+    items = load(name)["items"]
     ok, fails, by_kind = 0, [], Counter()
     for it in items:
         st, tt = (TYPES[c] for c in it["types"])
@@ -78,7 +79,7 @@ def eval_normalization():
             by_kind[kind] += 1
             fails.append(f"{it['phrase']!r}: got {got}, expected {it['expect']}")
     m = {"items": len(items), "accuracy %": pct(ok, len(items)), **{f"  {k}": v for k, v in by_kind.items()}}
-    show("normalization (phrase → core relation)", m, fails)
+    show(title, m, fails)
     return {"metrics": m, "failures": fails}
 
 
@@ -138,12 +139,12 @@ def _relation_graph(group):
     return {"nodes": nodes, "edges": edges}, gold
 
 
-async def _relations_once(chat):
+async def _relations_once(chat, name="relations.json"):
     import vocab_rag
     import vocabulary as vocab
     vocab_rag._embeddings.ensure()   # the server warms this up at startup
     rows = []
-    for group in load("relations.json")["groups"]:
+    for group in load(name)["groups"]:
         graph, gold = _relation_graph(group)
         vocab.normalize_graph(graph)
         await vocab_rag.link_relations(graph, chat)
@@ -185,7 +186,7 @@ def _relation_metrics(rows):
 
 # ── entity linking (LLM + Wikidata) ──────────────────────────────────────
 
-async def _entities_once(chat):
+async def _entities_once(chat, name="entities.json"):
     import entity_link as el
     import httpx
     rows = []
@@ -198,14 +199,15 @@ async def _entities_once(chat):
                 raw[label].setdefault(it["id"], it)
             return items
 
-        for g in load("entities.json")["graphs"]:
-            ids = {lab: f"n{i}" for i, (lab, _, _) in enumerate(g["nodes"])}
-            graph = {"nodes": [{"id": ids[lab], "label": lab, "type": typ} for lab, typ, _ in g["nodes"]],
+        for g in load(name)["graphs"]:
+            ids = {n[0]: f"n{i}" for i, n in enumerate(g["nodes"])}
+            graph = {"nodes": [{"id": ids[n[0]], "label": n[0], "type": n[1],
+                                **({"description": n[3]} if len(n) > 3 else {})} for n in g["nodes"]],
                      "edges": [{"id": f"e{i}", "source": ids[s], "target": ids[t], "label": p}
                                for i, (s, p, t) in enumerate(g["edges"])]}
             await el.link_entities(graph, chat, g["topic"], search=search)
             by_label = {n["label"]: n for n in graph["nodes"]}
-            for lab, _, expect in g["nodes"]:
+            for lab, _, expect, *_ in g["nodes"]:
                 got = by_label[lab].get("wikidata_id")
                 cands = [c["id"] for c in el.filter_candidates(lab, list(raw[lab].values()))[:el.CANDIDATES]]
                 if expect:
@@ -222,6 +224,10 @@ def _entity_metrics(rows):
     m = _relation_metrics([{**r, "accept": r["expect"], "method": None} for r in rows])
     m.pop("by method")
     pos = [r for r in rows if r["expect"]]
+    neg = [r for r in rows if not r["expect"]]
+    hard = [r for r in neg if r["candidates"]]
+    m["negatives with candidates"] = len(hard)
+    m["abstention on those %"] = pct(sum(r["verdict"] == "abstained" for r in hard), len(hard))
     m["gold in candidates %"] = pct(sum(r["gold_in_candidates"] for r in pos), len(pos))
     m["selection acc. when gold present %"] = pct(
         sum(r["verdict"] == "correct" for r in pos if r["gold_in_candidates"]),
@@ -256,13 +262,14 @@ async def eval_llm(suite, repeat):
         "relations": (_relations_once, _relation_metrics, _fail_lines_rel,
                       ["precision %", "recall %", "abstention %"]),
         "entities": (_entities_once, _entity_metrics, _fail_lines_ent,
-                     ["precision %", "recall %", "abstention %", "gold in candidates %",
+                     ["precision %", "recall %", "abstention %", "abstention on those %", "gold in candidates %",
                       "selection acc. when gold present %"]),
-    }[suite]
+    }[suite.replace("-heldout", "")]
+    data = suite.replace("-heldout", "") + ("_heldout.json" if suite.endswith("-heldout") else ".json")
     runs, secs = [], []
     for i in range(repeat):
         t0 = time.time()
-        runs.append(await once(quick_chat))
+        runs.append(await once(quick_chat, data))
         secs.append(round(time.time() - t0, 1))
     per, agg = _aggregate(runs, metric_fn, keys)
     agg["runs"] = repeat
@@ -274,9 +281,45 @@ async def eval_llm(suite, repeat):
     # Failures that recur in every run are the systematic ones.
     fails = Counter(line for r in runs for line in set(fail_fn(r)))
     lines = [f"{n}/{repeat}  {line}" for line, n in fails.most_common()]
-    title = "relation linking (LLM, end to end)" if suite == "relations" else "entity linking (LLM + Wikidata)"
+    title = "relation linking (LLM, end to end)" if suite.startswith("relations") else "entity linking (LLM + Wikidata)"
+    title += ", held-out" if suite.endswith("-heldout") else ""
     show(title, agg, lines)
     return {"metrics": agg, "per_run": per, "runs": runs}
+
+
+# ── automatic repair ─────────────────────────────────────────────────────
+
+async def eval_repair():
+    from crew.ollama_pipeline import quick_chat
+    from repair import quality, repair_graph
+    types = {"I": "Instance", "C": "Class"}
+    stats, lines = Counter(), []
+    for case in load("repair.json")["cases"]:
+        ids = {lab: f"n{i}" for i, (lab, _) in enumerate(case["nodes"])}
+        graph = {"nodes": [{"id": ids[lab], "label": lab, "type": types[t]} for lab, t in case["nodes"]],
+                 "edges": [{"id": i, "source": ids[s], "target": ids[o], "label": p}
+                           for i, s, p, o in case["edges"]]}
+        before = quality(graph)
+        report = await repair_graph(graph, quick_chat, case["topic"])
+        after = quality(graph)
+        removed = [e["id"] for e in report["removed_edges"]]
+        stats["cases"] += 1
+        stats["never worse"] += after["penalty"] <= before["penalty"]
+        stats["resolved"] += after["errors"] == 0
+        if removed == [case["bad"]]:
+            stats["correct edge"] += 1
+        elif removed:
+            stats["wrong edge"] += 1
+            lines.append(f"[wrong edge] {case['topic']}: removed {report['actions'][0]['statement']}")
+        else:
+            stats["no change"] += 1
+            lines.append(f"[no change] {case['topic']}")
+    n = stats["cases"]
+    m = {"cases": n, "never worse %": pct(stats["never worse"], n), "errors resolved %": pct(stats["resolved"], n),
+         "false edge removed %": pct(stats["correct edge"], n), "true edge removed": stats["wrong edge"],
+         "left unchanged": stats["no change"]}
+    show("automatic repair (planted false statements)", m, lines)
+    return {"metrics": m, "failures": lines}
 
 
 # ── reasoning vs owlrl ───────────────────────────────────────────────────
@@ -449,13 +492,16 @@ def eval_paths(n_cases=150, seed=11):
 async def verify_gold():
     import entity_link as el
     import httpx
-    qids = sorted({q for g in load("entities.json")["graphs"] for _, _, exp in g["nodes"] for q in exp},
+    qids = sorted({q for f in ("entities.json", "entities_heldout.json")
+                   for g in load(f)["graphs"] for n in g["nodes"] for q in n[2]},
                   key=lambda q: int(q[1:]))
     async with httpx.AsyncClient(timeout=20, headers={"User-Agent": el.USER_AGENT}) as client:
-        r = await client.get(el.API, params={"action": "wbgetentities", "ids": "|".join(qids),
-                                             "props": "labels|descriptions", "languages": "ko|en",
-                                             "format": "json"})
-        ents = r.json()["entities"]
+        ents = {}
+        for i in range(0, len(qids), 50):       # the API takes at most 50 ids
+            r = await client.get(el.API, params={"action": "wbgetentities", "ids": "|".join(qids[i:i + 50]),
+                                                 "props": "labels|descriptions", "languages": "ko|en",
+                                                 "format": "json"})
+            ents.update(r.json()["entities"])
     for q in qids:
         e = ents.get(q, {})
         lab = e.get("labels", {})
@@ -488,12 +534,16 @@ def main():
         t0 = time.time()
         if s == "normalization":
             r = eval_normalization()
+        elif s == "normalization-heldout":
+            r = eval_normalization("normalization_heldout.json", "normalization, held-out phrases")
         elif s == "retrieval":
             r = eval_retrieval()
         elif s == "reasoning":
             r = eval_reasoning()
         elif s == "paths":
             r = eval_paths()
+        elif s == "repair":
+            r = asyncio.run(eval_repair())
         elif s in LLM:
             r = asyncio.run(eval_llm(s, max(1, args.repeat)))
         else:

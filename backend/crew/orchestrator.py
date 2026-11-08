@@ -44,6 +44,7 @@ async def _run_crewai_pipeline(job: Job, broadcast) -> None:
     from .tools.search import search_web
     from memory.store import memory_store
     from reasoning import analyze, issues_for_prompt
+    from repair import not_worse
 
     topic    = job.topic
     options  = job.options
@@ -162,7 +163,8 @@ async def _run_crewai_pipeline(job: Job, broadcast) -> None:
                 {**editor_inputs, "validation": feedback, "current_graph": graph_json},
             )
             refined_graph = _parse_graph(refined_text)
-            if refined_graph.get("nodes"):
+            # The reasoner decides whether a rewrite is kept, not the critic.
+            if refined_graph.get("nodes") and not_worse(current_graph, refined_graph):
                 current_graph = refined_graph
 
         from crew.ollama_pipeline import finalize_graph

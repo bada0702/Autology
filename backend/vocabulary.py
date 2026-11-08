@@ -205,39 +205,68 @@ class Resolution:
 
 
 _HANGUL = re.compile(r"[가-힣]")
-# Predicate endings LLMs attach to Korean relation nouns ("사용한다", "원인이다",
-# "위치함"). Longest first. "한다/된다/하다/되다" also map to the "-함/-됨" noun
-# forms used in the alias lists ("속한다" → "속함").
-_KO_ENDINGS = ("입니다", "합니다", "됩니다", "이에요", "이다", "한다", "된다", "하다", "되다",
-               "있다", "있음", "함", "됨", "임")
-_KO_NOMINAL = {"한다": "함", "하다": "함", "합니다": "함", "된다": "됨", "되다": "됨", "됩니다": "됨"}
-# Particles left on the stem ("관련이 있다", "필요로 한다") or in front ("의 결과").
+# Predicate endings LLMs attach to Korean relation nouns ("사용한다",
+# "개발했다", "위치해 있다", "연관되어 있다"). Longest first.
+_KO_ENDINGS = ("되어-있다", "되어있다", "하고-있다", "하고있다", "해-있다", "해있다",
+               "되었다", "하였다", "입니다", "합니다", "됩니다", "이에요",
+               "했다", "됐다", "이다", "한다", "된다", "하다", "되다", "있다", "있음",
+               "함", "됨", "임")
+# Alias lists use "-함/-됨" noun forms ("속함", "포함됨"). Passive endings try
+# the "-됨" form first: "포함된다" means 포함됨 (part-of), not 포함 (has-part).
+_KO_PASSIVE = {"되어-있다", "되어있다", "되었다", "됐다", "된다", "되다", "됩니다"}
+_KO_ACTIVE = {"하고-있다", "하고있다", "해-있다", "해있다", "하였다", "했다", "한다", "하다", "합니다"}
+# Particles left on the stem ("관련이 있다", "필요로 한다") or in front of it
+# ("의 결과", "을 사용함", "와 관련됨", "보다 크다").
 _KO_TAIL = ("으로", "에서", "이", "가", "을", "를", "로", "에", "와", "과")
-_KO_HEAD = ("의-", "에-")
+_KO_HEAD = ("에서-", "에게-", "으로-", "보다-", "의-", "에-", "을-", "를-", "와-", "과-", "로-", "이-", "가-")
 
 
-def _korean_variants(key: str) -> list[str]:
-    """Base forms of a Korean predicate phrase, most specific first."""
-    stems = []
+def _strip_ending(key: str) -> list[str]:
     for end in _KO_ENDINGS:
         if key.endswith(end) and len(key) > len(end):
             stem = key[: -len(end)].rstrip("-")
-            stems.append(stem)
-            if end in _KO_NOMINAL:
-                stems.append(stem + _KO_NOMINAL[end])
-            break
-    out = []
-    for stem in [key, *stems]:
-        forms = [stem]
-        for tail in _KO_TAIL:
-            if stem.endswith(tail) and len(stem) - len(tail) >= 2:
-                forms.append(stem[: -len(tail)].rstrip("-"))
-                break
-        for form in list(forms):
-            for head in _KO_HEAD:
-                if form.startswith(head) and len(form) - len(head) >= 2:
-                    forms.append(form[len(head):])
-        out.extend(f for f in forms if len(f) >= 2)
+            if end in _KO_PASSIVE:
+                return [stem + "됨", stem]
+            if end in _KO_ACTIVE:
+                return [stem, stem + "함"]
+            return [stem]
+    return []
+
+
+def _strip_head(key: str) -> list[str]:
+    for head in _KO_HEAD:
+        if key.startswith(head) and len(key) > len(head):
+            return [key[len(head):]]
+    return []
+
+
+def _strip_tail(key: str) -> list[str]:
+    for tail in _KO_TAIL:
+        if key.endswith(tail) and len(key) - len(tail) >= 2:
+            return [key[: -len(tail)].rstrip("-")]
+    return []
+
+
+def _korean_variants(key: str) -> list[str]:
+    """Base forms of a Korean predicate phrase, fewest edits first.
+
+    Breadth-first over three edits (drop a leading particle, drop the
+    predicate ending, drop a trailing particle), so "와 관련됨" → "관련됨" →
+    "관련" and "포함되어 있다" → "포함됨" are both reached.
+    """
+    seen = {key}
+    out: list[str] = []
+    frontier = [key]
+    for _ in range(3):
+        nxt = []
+        for k in frontier:
+            for op in (_strip_head, _strip_ending, _strip_tail):
+                for v in op(k):
+                    if v and v not in seen:
+                        seen.add(v)
+                        nxt.append(v)
+        out.extend(v for v in nxt if len(v) >= 2)
+        frontier = nxt
     return out
 
 
@@ -247,6 +276,10 @@ def _lookup(label: str) -> tuple[str | None, bool]:
     for prefix in ("is-", "are-", "was-"):
         if key.startswith(prefix):
             candidates.append(key[len(prefix):])
+    for cand in list(candidates):
+        for article in ("a-", "an-", "the-"):      # "is a member of" → member-of
+            if cand.startswith(article):
+                candidates.append(cand[len(article):])
     if _HANGUL.search(key):
         candidates += _korean_variants(key)
     for cand in dict.fromkeys(candidates):

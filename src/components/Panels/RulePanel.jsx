@@ -51,7 +51,8 @@ export default function RulePanel() {
       const res = await reasonWithBackend(graph);
       // Mirrors of asserted symmetric edges (B related-to A) are not drawn.
       graphDispatch({ type: 'APPLY_RULES', payload: res.inferred.filter(e => !e.mirror) });
-      setReasonResult({ issues: res.issues, stats: res.stats });
+      const mirrors = res.inferred.filter(e => e.mirror).length;
+      setReasonResult({ issues: res.issues, stats: { ...res.stats, mirrors } });
     } catch (err) {
       setReasonResult({ error: err.message });
     } finally {
@@ -114,7 +115,9 @@ export default function RulePanel() {
           <div className="rule-violations-title">
             {reasonResult.error
               ? '추론 실패'
-              : `추론 ${reasonResult.stats.inferred_edges}개 · 오류 ${reasonResult.stats.errors} · 경고 ${reasonResult.stats.warnings}`}
+              : `추론 ${reasonResult.stats.inferred_edges - reasonResult.stats.mirrors}개`
+                + (reasonResult.stats.mirrors ? ` (+대칭 역방향 ${reasonResult.stats.mirrors}개, 표시 생략)` : '')
+                + ` · 오류 ${reasonResult.stats.errors} · 경고 ${reasonResult.stats.warnings}`}
           </div>
           {reasonResult.error && (
             <div className="rule-violation rule-violation--error"><span>!</span><p>{reasonResult.error}</p></div>

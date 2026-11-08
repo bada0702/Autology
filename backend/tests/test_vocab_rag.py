@@ -91,20 +91,31 @@ def test_exact_match_links_and_rewrites_to_core():
 def test_llm_choice_is_restricted_to_candidates():
     g = {"nodes": [_n("a", "A"), _n("b", "B")],
          "edges": [_e("e1", "a", "b", "연비에 영향"), _e("e2", "b", "a", "아주 특이한 관계")]}
-    chat = _fake_chat({"links": {"연비에 영향": "P999999", "아주 특이한 관계": None}})
+    chat = _fake_chat({"choice": 99})                 # out of range for every relation
     summary = _link(g, chat)
-    assert len(chat.calls) == 1                       # one batched call
+    assert len(chat.calls) == 2                       # one question per relation, no verification
     assert set(summary["unlinked"]) == {"연비에 영향", "아주 특이한 관계"}
     assert all("wikidata" not in e for e in g["edges"])
+
+
+def test_llm_choice_by_number_maps_to_candidate():
+    g = {"nodes": [_n("a", "A"), _n("b", "B")],
+         "edges": [_e("e1", "a", "b", "학교를 졸업함"), _e("e2", "b", "a", "아주 특이한 관계")]}
+    chat = _fake_chat(lambda user: {"choice": 2 if "학교를 졸업함" in user else 0})
+    summary = _link(g, chat)
+    prompt = next(c for c in chat.calls if "학교를 졸업함" in c)
+    lines = prompt.splitlines()
+    assert any(x.startswith("2) ") for x in lines) and "0) none of these" in lines
+    assert not any(line.startswith("1) P") for line in prompt.splitlines())   # no ids to copy
+    second = rag.with_inverses(rag.search("학교를 졸업함", 5, use_embeddings=False))[1]["id"]
+    assert summary["linked"]["학교를 졸업함"]["id"] == second
+    assert summary["unlinked"] == ["아주 특이한 관계"]
 
 
 def test_llm_choice_links_candidate():
     g = {"nodes": [_n("a", "A"), _n("b", "B")], "edges": [_e("e1", "a", "b", "학교를 졸업함")]}
 
-    def pick_first(user):
-        first = user.split("   - ", 1)[1].split(":", 1)[0]
-        return {"links": {"학교를 졸업함": first}}
-    chat = _fake_chat(pick_first)
+    chat = _fake_chat({"choice": 1})
     summary = _link(g, chat)
     assert len(chat.calls) == 2                       # select + verify
     assert summary["linked"]["학교를 졸업함"]["method"] == "llm"
@@ -115,25 +126,21 @@ def test_verification_rejects_links():
     g = {"nodes": [_n("phone", "아이폰"), _n("apple", "애플"), _n("a", "A"), _n("b", "B")],
          "edges": [_e("e1", "phone", "apple", "제조사"), _e("e2", "a", "b", "학교를 졸업함")]}
 
-    def pick_first(user):
-        block = user.split('Relation "학교를 졸업함"', 1)[1]
-        return {"links": {"학교를 졸업함": block.split("   - ", 1)[1].split(":", 1)[0]}}
-    summary = _link(g, _fake_chat(pick_first, verify="none"))
+    # 제조사 is an exact match, so 학교를 졸업함 is the only (first) relation asked.
+    summary = _link(g, _fake_chat({"choice": 1}, verify="none"))
     assert summary["linked"] == {}                     # exact matches are verified too
     assert set(summary["rejected"]) == {"제조사", "학교를 졸업함"}
     assert all("wikidata" not in e for e in g["edges"])
 
 
-def test_verification_switches_llm_link_to_inverse_property():
-    # The model picked P176 for "제조한 회사" but 애플 —[manufacturer]→ 아이폰 is
-    # backwards; the verifier says "b", so the link switches to P176's inverse
-    # (P1056 product or material produced).
+def test_verification_rejects_reversed_llm_link_without_flipping():
+    # The verifier says the model's pick reads backwards. Inverse properties are
+    # already offered at selection, so the link is dropped rather than switched.
     g = {"nodes": [_n("phone", "아이폰"), _n("apple", "애플")],
          "edges": [_e("e1", "apple", "phone", "제조한 회사")]}
-    summary = _link(g, _fake_chat({"links": {"제조한 회사": "P176"}}, verify="b"))
-    assert summary["linked"]["제조한 회사"] == {"id": "P1056", "method": "llm+inverse"}
-    (edge,) = g["edges"]
-    assert (edge["source"], edge["label"], edge["target"]) == ("apple", "produces", "phone")
+    summary = _link(g, _fake_chat({"choice": "P176"}, verify="b"))
+    assert summary["linked"] == {} and summary["rejected"] == {"제조한 회사": "P176"}
+    assert "wikidata" not in g["edges"][0]
 
 
 def test_verification_never_flips_exact_matches():

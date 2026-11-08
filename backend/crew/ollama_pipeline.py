@@ -19,12 +19,15 @@ from models.job import Job, JobStatus, AgentStatus
 from memory.store import memory_store
 from vocabulary import normalize_graph, prompt_block
 from reasoning import analyze, issues_for_prompt
+from repair import not_worse
 
 
 async def quick_chat(system: str, user: str) -> str:
     """Chat without thinking mode, for short structured choices (e.g. picking
-    a vocabulary candidate). Thinking can exceed the request timeout there."""
-    return await _chat(system, user, think=False)
+    a vocabulary candidate). Thinking can exceed the request timeout there.
+    Temperature 0: these are classifications, and at the default temperature
+    small models flip between a correct pick and "none" on the same input."""
+    return await _chat(system, user, think=False, temperature=0)
 
 
 async def finalize_graph(graph: dict, topic: str, options: dict) -> None:
@@ -38,6 +41,12 @@ async def finalize_graph(graph: dict, topic: str, options: dict) -> None:
             graph["entity_links"] = await link_entities(graph, quick_chat, topic)
         except Exception as exc:  # noqa: BLE001 — never fail generation over linking
             graph["entity_links"] = {"error": str(exc)}
+    if options.get("auto_repair", True):
+        try:
+            from repair import repair_graph
+            graph["repair_report"] = await repair_graph(graph, quick_chat, topic)
+        except Exception as exc:  # noqa: BLE001 — never fail generation over repair
+            graph["repair_report"] = {"error": str(exc)}
     report = analyze(graph)
     graph["validation_report"] = {"issues": report["issues"], "stats": report["stats"]}
     if options.get("accumulate"):
@@ -66,7 +75,8 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 MAX_REFINEMENT_ITER = 2   # Maximum critic→editor refinement cycles
 
 
-async def _chat(system: str, user: str, think: bool | None = None) -> str:
+async def _chat(system: str, user: str, think: bool | None = None,
+                temperature: float | None = None) -> str:
     payload = {
         "model": OLLAMA_MODEL,
         "messages": [
@@ -77,6 +87,8 @@ async def _chat(system: str, user: str, think: bool | None = None) -> str:
     }
     if think is not None:
         payload["think"] = think
+    if temperature is not None:
+        payload["options"] = {"temperature": temperature}
     async with httpx.AsyncClient(timeout=180) as client:
         r = await client.post(f"{OLLAMA_BASE}/api/chat", json=payload)
         r.raise_for_status()
@@ -313,7 +325,8 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
                     f"현재 그래프:\n{json.dumps(graph, ensure_ascii=False)[:2000]}\n\n{refinement_prompt}"
                 )
                 refined = _extract_json(refined_text)
-                if refined and refined.get("nodes"):
+                # The reasoner decides whether a rewrite is kept, not the critic.
+                if refined and refined.get("nodes") and not_worse(graph, refined):
                     graph = refined
                     current_graph_text = refined_text
 

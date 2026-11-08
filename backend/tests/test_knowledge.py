@@ -144,22 +144,40 @@ def _item(qid, label, desc, match_text=None):
 
 
 def test_filter_candidates():
-    items = [_item("Q1", "모델 3", "위키미디어 동음이의어 문서"),
-             _item("Q2", "테슬라 모델 3", "electric car", match_text="테슬라 모델 3"),
-             _item("Q3", "테슬라", "electric car company"),
+    # Search order as Wikidata returns it for "테슬라": exact labels first.
+    items = [_item("Q3", "테슬라", "electric car company"),
+             _item("Q1", "모델 3", "위키미디어 동음이의어 문서"),
+             _item("Q5", "테슬라", "SI unit"),
              _item("Q4", "테슬라 모델 S", "electric sedan", match_text="테슬라 모델 S")]
-    assert [c["id"] for c in el.filter_candidates("테슬라", items)] == ["Q3"]   # exact only
-    assert [c["id"] for c in el.filter_candidates("모델 3", items[:2])] == ["Q2"]  # disambig dropped
+    assert [c["id"] for c in el.filter_candidates("테슬라", items)] == ["Q3", "Q5"]   # no prefix matches
+    assert [c["id"] for c in el.filter_candidates("모델 3", items[1:2])] == []      # disambig dropped
+    # "아마존": search ranks the company (label 아마존닷컴) first, the only exact
+    # label is a chess piece. The top hit must survive the exact-label filter.
+    amazon = [_item("Q3884", "아마존닷컴", "미국 시애틀의 기업"),
+              _item("Q647433", "아마존", "fairy chess piece"),
+              _item("Q177567", "아마존 우림", "열대 우림")]
+    assert [c["id"] for c in el.filter_candidates("아마존", amazon)] == ["Q647433", "Q3884"]
+
+
+def test_pick_by_number_or_listed_id():
+    cands = [_item("Q1", "a", ""), _item("Q2", "b", "")]
+    assert el._pick({"choice": 2}, cands)["id"] == "Q2"
+    assert el._pick({"choice": "1"}, cands)["id"] == "Q1"
+    assert el._pick({"choice": 0}, cands) is None
+    assert el._pick({"choice": 3}, cands) is None
+    assert el._pick({"id": "Q2"}, cands)["id"] == "Q2"        # old format still understood
+    assert el._pick({"id": "Q9"}, cands) is None              # never an unlisted id
+    assert el._pick({"choice": True}, cands) is None
 
 
 def test_link_entities_accepts_only_listed_candidates():
     table = {("테슬라", "ko"): [_item("Q478214", "테슬라", "전기자동차 회사"), _item("Q163343", "테슬라", "SI unit")],
              ("일론 머스크", "ko"): [_item("Q317521", "일론 머스크", "사업가")]}
-    answers = {"테슬라": "Q478214", "일론 머스크": "Q999"}      # second is not a candidate
+    answers = {"테슬라": 1, "일론 머스크": 7}      # second is out of range
 
     async def chat(system, user):
         label = user.split('Node: "', 1)[1].split('"', 1)[0]
-        return json.dumps({"id": answers[label]})
+        return json.dumps({"choice": answers[label]})
     g = {"nodes": [_n("a", "테슬라"), _n("b", "일론 머스크"), _n("c", "42", "Literal")], "edges": []}
     summary = asyncio.run(el.link_entities(g, chat, "전기차", search=_fake_search(table)))
     assert summary["linked"] == {"테슬라": "Q478214"}

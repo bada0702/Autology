@@ -327,14 +327,17 @@ def with_inverses(cands: list[dict]) -> list[dict]:
 
 ChatFn = Callable[[str, str], Awaitable[str]]
 
+SELECT_CONCURRENCY = 4
+
 _SELECT_SYSTEM = (
-    "You map free-text relation labels from a knowledge graph to Wikidata properties. "
-    "For each relation you get example edges (source → target) and candidate properties. "
-    "A property reads 'subject PROPERTY value', where the edge source is the subject and the "
-    "target is the value. Candidates marked (inverse of Pxx) state the reverse direction. "
-    "Pick a candidate only if 'source PROPERTY target' says the same thing as the edge; "
-    "if no candidate fits, answer null — null is better than a near miss. Never invent ids. "
-    'Return JSON only: {"links": {"<relation label>": "<property id or null>"}}'
+    "You map one free-text relation from a knowledge graph to a Wikidata property. "
+    "You get the relation, example edges (source → target) and numbered options. "
+    "An option reads 'subject PROPERTY value', where the edge source is the subject and the "
+    "target is the value. Option 0 means none of them. "
+    "First write one short sentence on what the relation says about source and target, then "
+    "choose the option for which 'source PROPERTY target' says the same thing. Choose 0 when "
+    "only a loosely related option exists. "
+    'Return JSON only: {"reason": "<one sentence>", "choice": <option number>}'
 )
 
 _VERIFY_SYSTEM = (
@@ -345,6 +348,18 @@ _VERIFY_SYSTEM = (
     "neither is a correct use of the property. "
     'Return JSON only: {"answers": {"<item number>": "a" | "b" | "none"}}'
 )
+
+
+def _pick_option(value: Any, cands: list[dict]) -> dict | None:
+    """A candidate by 1-based number; a listed property id is accepted too."""
+    if isinstance(value, str):
+        v = value.strip()
+        if not v.isdigit():
+            return next((c for c in cands if c["id"] == v), None)
+        value = int(v)
+    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= len(cands):
+        return cands[value - 1]
+    return None
 
 
 def _unwrap(answer: dict, key: str) -> dict:
@@ -403,31 +418,36 @@ async def link_relations(graph: dict[str, Any], chat: ChatFn | None = None,
 
     pending = [label for label in custom if label not in chosen]
     if pending and chat is not None:
-        blocks = []
-        for label in pending:
+        # One numbered question per relation: small models miscopy property ids
+        # and lose items in a batch, and one timeout no longer costs them all.
+        sem = asyncio.Semaphore(SELECT_CONCURRENCY)
+
+        async def select(label):
             examples = "; ".join(f"{lbl(e['source'])} → {lbl(e['target'])}" for e in custom[label][:3])
-            cands = "\n".join(
-                f"   - {c['id']}: {_prop_text(c)}"
-                + (f" (inverse of {c['inverse_of']})" if c.get("inverse_of") else "")
-                for c in candidates[label]
+            options = "\n".join(
+                f"{i}) {_prop_text(c)}"
+                + (" (reverse direction of another option)" if c.get("inverse_of") else "")
+                for i, c in enumerate(candidates[label], 1)
             )
-            blocks.append(f'Relation "{label}" (examples: {examples})\n{cands}')
-        try:
-            links = _unwrap(_extract_json(await chat(_SELECT_SYSTEM, "\n\n".join(blocks))), "links")
-            for label in pending:
-                pid = links.get(label)
-                allowed = {c["id"] for c in candidates[label]}
-                if isinstance(pid, str) and pid in allowed:
-                    chosen[label] = (pid, "llm")
-        except Exception as exc:  # noqa: BLE001 — linking is best-effort
-            log.warning("relation linking LLM call failed: %r", exc)
+            user = f'Relation: "{label}"\nExamples: {examples}\nOptions:\n{options}\n0) none of these'
+            async with sem:
+                try:
+                    answer = _extract_json(await chat(_SELECT_SYSTEM, user))
+                except Exception as exc:  # noqa: BLE001 — linking is best-effort
+                    log.warning("relation linking LLM call failed for %r: %r", label, exc)
+                    return None
+            return _pick_option(answer.get("choice"), candidates[label])
+
+        for label, cand in zip(pending, await asyncio.gather(*(select(x) for x in pending))):
+            if cand:
+                chosen[label] = (cand["id"], "llm")
 
     props = load_properties()
     rejected: dict[str, str] = {}
     if chosen and chat is not None:
         # Read every link back in both directions and let the model pick the
         # true one. A contrastive choice is far more reliable for small models
-        # than judging one sentence, and it catches reversed directions.
+        # than judging one sentence, and it filters out reversed directions.
         items = list(chosen.items())
         blocks = []
         for i, (label, (pid, _)) in enumerate(items, 1):
@@ -439,7 +459,6 @@ async def link_relations(graph: dict[str, Any], chat: ChatFn | None = None,
             answers = _unwrap(_extract_json(await chat(_VERIFY_SYSTEM, "\n".join(blocks))), "answers")
             for i, (label, (pid, method)) in enumerate(items, 1):
                 ans = str(answers.get(str(i), answers.get(i, "none"))).strip().lower()
-                inverse = (props[pid].get("inverse") or [None])[0]
                 if ans == "a":
                     continue
                 if method == "exact":
@@ -450,10 +469,9 @@ async def link_relations(graph: dict[str, Any], chat: ChatFn | None = None,
                     if ans != "b":
                         rejected[label] = pid
                     continue
-                if ans == "b" and inverse in props:
-                    chosen[label] = (inverse, method + "+inverse")   # right meaning, other direction
-                else:
-                    rejected[label] = pid
+                # Not flipped to the inverse: 5 of 6 such flips were wrong in
+                # evaluation, and inverse properties are offered at selection.
+                rejected[label] = pid
         except Exception as exc:  # noqa: BLE001
             log.warning("relation link verification failed: %r", exc)
             rejected = {label: pid for label, (pid, m) in items if m == "llm"}
