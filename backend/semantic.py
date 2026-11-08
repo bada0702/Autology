@@ -107,6 +107,10 @@ def graph_to_rdf(graph: dict[str, Any], include_inferred: bool = False):
             g.add((uri, RDFS.label, _text(node["label"], Literal)))
         if node.get("description"):
             g.add((uri, RDFS.comment, _text(node["description"], Literal)))
+        if node.get("wikidata_id"):
+            # skos:exactMatch rather than owl:sameAs: it links without importing
+            # Wikidata's semantics into the reasoner (and works for classes).
+            g.add((uri, SKOS.exactMatch, URIRef(WIKIDATA_ENTITY + node["wikidata_id"])))
         for prop in node.get("properties") or []:
             key = prop.get("key")
             if not key:

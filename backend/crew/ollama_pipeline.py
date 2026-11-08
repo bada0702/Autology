@@ -27,6 +27,29 @@ async def quick_chat(system: str, user: str) -> str:
     return await _chat(system, user, think=False)
 
 
+async def finalize_graph(graph: dict, topic: str, options: dict) -> None:
+    """Shared post-processing for both pipelines, in place:
+    normalize → link relations → link entities → validate → (optionally) accumulate."""
+    normalize_graph(graph)
+    graph["vocabulary_links"] = await link_vocabulary(graph)
+    if options.get("link_entities", True):
+        try:
+            from entity_link import link_entities
+            graph["entity_links"] = await link_entities(graph, quick_chat, topic)
+        except Exception as exc:  # noqa: BLE001 — never fail generation over linking
+            graph["entity_links"] = {"error": str(exc)}
+    report = analyze(graph)
+    graph["validation_report"] = {"issues": report["issues"], "stats": report["stats"]}
+    if options.get("accumulate"):
+        try:
+            from knowledge import get_kb
+            result = get_kb().ingest(graph, topic)
+            result.pop("id_map", None)
+            graph["knowledge_ingest"] = result
+        except Exception as exc:  # noqa: BLE001
+            graph["knowledge_ingest"] = {"error": str(exc)}
+
+
 async def link_vocabulary(graph: dict) -> dict:
     """Link custom relations to Wikidata (best effort) and re-normalize."""
     try:
@@ -295,10 +318,7 @@ async def run_ollama_pipeline(job: Job, broadcast) -> None:
                     current_graph_text = refined_text
 
         # ── Attach metadata ───────────────────────────────────────
-        normalize_graph(graph)
-        graph["vocabulary_links"] = await link_vocabulary(graph)
-        report = analyze(graph)
-        graph["validation_report"] = {"issues": report["issues"], "stats": report["stats"]}
+        await finalize_graph(graph, topic, options)
         graph["schema_evolution"] = schema_evolution
         graph["memory_applied"]   = memory_applied
 

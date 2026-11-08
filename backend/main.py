@@ -10,7 +10,7 @@ import os
 import sys
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 # .env 로드 (선택적 검색 API 키, OLLAMA_BASE 등) — env를 읽는 다른 모듈 import 전에 실행
 try:
@@ -106,6 +106,19 @@ class VocabSearchRequest(BaseModel):
 class VocabLinkRequest(BaseModel):
     graph: Dict[str, Any]
     use_llm: bool = True
+
+class EntityLinkRequest(BaseModel):
+    graph: Dict[str, Any]
+    topic: str = ""
+
+class KnowledgeIngestRequest(BaseModel):
+    graph: Dict[str, Any]
+    topic: str = ""
+
+class KnowledgeSubgraphRequest(BaseModel):
+    query: str = ""
+    node_ids: List[str] = []
+    hops: int = 1
 
 class ShaclRequest(BaseModel):
     data: str
@@ -291,6 +304,59 @@ async def vocabulary_link(req: VocabLinkRequest):
     summary = await vocab_rag.link_relations(graph, quick_chat if req.use_llm else None)
     normalize_graph(graph)
     return {"graph": graph, "summary": summary}
+
+
+@app.post("/api/entities/link")
+async def entities_link(req: EntityLinkRequest):
+    """Attach Wikidata item ids to the graph's nodes (best effort)."""
+    from entity_link import link_entities
+    from crew.ollama_pipeline import quick_chat
+    graph = dict(req.graph, nodes=[dict(n) for n in req.graph.get("nodes", [])])
+    summary = await link_entities(graph, quick_chat, req.topic)
+    return {"graph": graph, "summary": summary}
+
+
+@app.get("/api/knowledge/stats")
+async def knowledge_stats():
+    from knowledge import get_kb
+    kb = get_kb()
+    return {**kb.stats(), "sources": kb.sources()}
+
+
+@app.post("/api/knowledge/ingest")
+async def knowledge_ingest(req: KnowledgeIngestRequest):
+    """Merge a graph into the knowledge base (entity resolution + provenance)."""
+    from knowledge import get_kb
+    result = await asyncio.to_thread(get_kb().ingest, req.graph, req.topic)
+    result.pop("id_map", None)
+    return result
+
+
+@app.get("/api/knowledge/graph")
+async def knowledge_graph(limit: int = 2000):
+    from knowledge import get_kb
+    return get_kb().graph(limit=max(1, min(limit, 10000)))
+
+
+@app.post("/api/knowledge/subgraph")
+async def knowledge_subgraph(req: KnowledgeSubgraphRequest):
+    """Nodes matching `query` (label/alias/Q-id) or `node_ids`, plus `hops` neighbours."""
+    from knowledge import get_kb
+    kb = get_kb()
+    seeds = list(req.node_ids)
+    if not seeds and req.query.strip():
+        seeds = [r["id"] for r in kb.search(req.query)]
+    if not seeds:
+        return {"nodes": [], "edges": [], "seeds": []}
+    sub = kb.neighbourhood(seeds, hops=max(0, min(req.hops, 4)))
+    return {**sub, "seeds": seeds}
+
+
+@app.delete("/api/knowledge/sources/{source_id}")
+async def knowledge_delete_source(source_id: str):
+    """Undo one ingest: remove what only that source contributed."""
+    from knowledge import get_kb
+    return get_kb().delete_source(source_id)
 
 
 @app.post("/api/semantic/shacl")

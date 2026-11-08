@@ -13,6 +13,9 @@ import sys
 
 # Ollama 자동 기동 비활성화 (테스트는 외부 의존성 없이 돌아야 함)
 os.environ.setdefault("AUTOLOGY_SKIP_OLLAMA_AUTOSTART", "1")
+# 실제 지식 베이스를 건드리지 않도록 임시 DB 사용
+import tempfile  # noqa: E402
+os.environ["AUTOLOGY_KB_PATH"] = os.path.join(tempfile.mkdtemp(), "kb.db")
 
 # backend/ 를 import 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -80,6 +83,25 @@ def test_semantic_reason():
     body = r.json()
     assert [(e["source"], e["target"]) for e in body["inferred"]] == [("a", "c")]
     assert "issues" in body and "stats" in body
+
+
+def test_knowledge_endpoints():
+    g1 = {"nodes": [{"id": "a", "label": "피스톤", "type": "Instance"},
+                    {"id": "b", "label": "엔진", "type": "Instance"}],
+          "edges": [{"id": "e", "source": "a", "target": "b", "label": "part-of"}]}
+    g2 = {"nodes": [{"id": "a", "label": "엔진", "type": "Instance"},
+                    {"id": "b", "label": "자동차", "type": "Instance"}],
+          "edges": [{"id": "e", "source": "a", "target": "b", "label": "part-of"}]}
+    with TestClient(app) as client:
+        r1 = client.post("/api/knowledge/ingest", json={"graph": g1, "topic": "엔진"}).json()
+        r2 = client.post("/api/knowledge/ingest", json={"graph": g2, "topic": "자동차"}).json()
+        assert r1["nodes_added"] == 2 and r2["nodes_merged"] == 1
+        stats = client.get("/api/knowledge/stats").json()
+        assert stats["nodes"] == 3 and len(stats["sources"]) == 2
+        sub = client.post("/api/knowledge/subgraph", json={"query": "피스톤", "hops": 2}).json()
+        assert {n["label"] for n in sub["nodes"]} == {"피스톤", "엔진", "자동차"}
+        assert client.delete(f"/api/knowledge/sources/{r2['source_id']}").json()["nodes_deleted"] == 1
+        assert client.get("/api/knowledge/graph").json()["nodes"].__len__() == 2
 
 
 def _run_all():

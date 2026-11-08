@@ -187,7 +187,10 @@ function graphReducer(state, action) {
 
     // ── Graph load ─────────────────────────────────────────
     case 'LOAD_GRAPH': {
+      // Spread first: keep backend metadata (wikidata_id, sources, relation,
+      // super_relation, …) that reasoning and the knowledge base rely on.
       const nodes = (action.payload.nodes || []).map((n, i) => ({
+        ...n,
         id: n.id || `node_${Date.now()}_${i}`,
         label: n.label || 'Node',
         type: n.type || 'Class',
@@ -197,6 +200,7 @@ function graphReducer(state, action) {
         description: n.description || ''
       }));
       const edges = (action.payload.edges || []).map((e, i) => ({
+        ...e,
         id: e.id || `edge_${Date.now()}_${i}`,
         source: e.source,
         target: e.target,

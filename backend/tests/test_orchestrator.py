@@ -60,7 +60,7 @@ def _run_pipeline(critic_scores):
         events.append(msg)
 
     try:
-        job = Job(id="test", topic="자동차 {구조}", options={"max_nodes": 10})
+        job = Job(id="test", topic="자동차 {구조}", options={"max_nodes": 10, "link_entities": False})
         asyncio.run(orch._run_crewai_pipeline(job, broadcast))
     finally:
         orch._kickoff, search.search_web = orig_kick, orig_search

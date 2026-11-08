@@ -36,6 +36,43 @@ export async function reasonWithBackend(graph) {
   return postJSON('/reason', { graph: { nodes: graph.nodes || [], edges } });
 }
 
+// ── Entity linking & knowledge base ─────────────────────────────────────────
+
+async function requestJSON(url, options = {}) {
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+  return data;
+}
+
+const jsonPost = (url, payload) => requestJSON(url, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
+
+const directOnly = (graph) => ({
+  nodes: graph.nodes || [],
+  edges: (graph.edges || []).filter(e => !e.inferred),
+});
+
+// Attach Wikidata item ids to nodes. Returns { graph, summary }.
+export const linkEntities = (graph, topic = '') =>
+  jsonPost('/api/entities/link', { graph: directOnly(graph), topic });
+
+export const getKnowledgeStats = () => requestJSON('/api/knowledge/stats');
+
+export const ingestKnowledge = (graph, topic = '') =>
+  jsonPost('/api/knowledge/ingest', { graph: directOnly(graph), topic });
+
+export const getKnowledgeGraph = (limit = 2000) => requestJSON(`/api/knowledge/graph?limit=${limit}`);
+
+export const getKnowledgeSubgraph = (query, hops = 1) =>
+  jsonPost('/api/knowledge/subgraph', { query, hops });
+
+export const deleteKnowledgeSource = (sourceId) =>
+  requestJSON(`/api/knowledge/sources/${encodeURIComponent(sourceId)}`, { method: 'DELETE' });
+
 export async function runSPARQL(content, query, format = 'turtle') {
   return postJSON('/sparql', { content, query, format });
 }

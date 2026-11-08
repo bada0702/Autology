@@ -44,7 +44,6 @@ async def _run_crewai_pipeline(job: Job, broadcast) -> None:
     from .tools.search import search_web
     from memory.store import memory_store
     from reasoning import analyze, issues_for_prompt
-    from vocabulary import normalize_graph
 
     topic    = job.topic
     options  = job.options
@@ -166,11 +165,8 @@ async def _run_crewai_pipeline(job: Job, broadcast) -> None:
             if refined_graph.get("nodes"):
                 current_graph = refined_graph
 
-        normalize_graph(current_graph)
-        from crew.ollama_pipeline import link_vocabulary
-        current_graph["vocabulary_links"] = await link_vocabulary(current_graph)
-        report = analyze(current_graph)
-        current_graph["validation_report"] = {"issues": report["issues"], "stats": report["stats"]}
+        from crew.ollama_pipeline import finalize_graph
+        await finalize_graph(current_graph, topic, options)
         current_graph["schema_evolution"] = []
         current_graph["memory_applied"]   = memory_applied
 

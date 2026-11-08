@@ -23,7 +23,7 @@ from datetime import date
 import httpx
 
 ENDPOINT = "https://query.wikidata.org/sparql"
-USER_AGENT = "Autology/1.0 (ontology builder; https://github.com/)"
+USER_AGENT = "Autology/1.0 (ontology builder; https://github.com/bada0702/Autology)"
 OUT = os.path.join(os.path.dirname(__file__), "..", "resources", "wikidata_properties.json")
 
 TRANSITIVE = "Q18647515"
