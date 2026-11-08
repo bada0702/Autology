@@ -100,6 +100,15 @@ def test_knowledge_endpoints():
         assert stats["nodes"] == 3 and len(stats["sources"]) == 2
         sub = client.post("/api/knowledge/subgraph", json={"query": "피스톤", "hops": 2}).json()
         assert {n["label"] for n in sub["nodes"]} == {"피스톤", "엔진", "자동차"}
+        # Path exploration over the knowledge base: 피스톤 part-of 자동차 is inferred
+        # from two sources, and the answer cites both.
+        paths = client.post("/api/explore/paths", json={"source": "피스톤", "target": "자동차"}).json()
+        top = paths["paths"][0]
+        assert top["hops"] == 1 and top["inferred_steps"] == 1
+        assert sorted(s["topic"] for s in top["sources"]) == ["엔진", "자동차"]
+        facts = client.post("/api/explore/facts", json={"node": "엔진", "graph": g1}).json()
+        assert [f["statement"] for f in facts["facts"]] == ["피스톤 part-of 엔진"]
+        assert client.post("/api/explore/facts", json={"node": "x", "direction": "up"}).status_code == 400
         assert client.delete(f"/api/knowledge/sources/{r2['source_id']}").json()["nodes_deleted"] == 1
         assert client.get("/api/knowledge/graph").json()["nodes"].__len__() == 2
 

@@ -442,6 +442,14 @@ async def link_relations(graph: dict[str, Any], chat: ChatFn | None = None,
                 inverse = (props[pid].get("inverse") or [None])[0]
                 if ans == "a":
                     continue
+                if method == "exact":
+                    # The phrase *is* the property's name, so the edge already
+                    # reads in the property's direction; small models still
+                    # answer "b" for correct ones (수도→P36 became P1376).
+                    # Verification may reject the sense, never flip it.
+                    if ans != "b":
+                        rejected[label] = pid
+                    continue
                 if ans == "b" and inverse in props:
                     chosen[label] = (inverse, method + "+inverse")   # right meaning, other direction
                 else:

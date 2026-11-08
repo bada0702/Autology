@@ -94,3 +94,89 @@
   width: auto !important;
   padding: 0 6px;
 }
+
+/* The knowledge tab stacks several sections; let the panel scroll as a whole. */
+.kb-panel { overflow-y: auto; }
+.kb-panel .kb-sources { flex: 1 0 auto; overflow-y: visible; }
+
+/* ── Exploration ─────────────────────────────────────────── */
+.kb-scope { flex: 1; min-width: 0; }
+
+.kb-check {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.6);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.kb-results {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.kb-path {
+  border-top: 1px solid rgba(255,255,255,0.04);
+  padding: 5px 0;
+}
+
+.kb-path-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.kb-path-head:hover { background: rgba(255,255,255,0.04); }
+.kb-path--selected .kb-path-head { background: rgba(167,139,250,0.10); }
+
+.kb-path-text {
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255,255,255,0.85);
+  word-break: keep-all;
+}
+
+.kb-step {
+  margin: 3px 0 0 8px;
+  padding-left: 6px;
+  border-left: 1px solid rgba(167,139,250,0.25);
+}
+
+.kb-fact { padding: 2px 0; }
+
+.kb-fact-text {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: rgba(255,255,255,0.72);
+}
+
+.kb-fact-text--inferred {
+  color: #c4b5fd;
+  cursor: pointer;
+}
+
+.kb-tag {
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.55);
+}
+
+.kb-deriv {
+  font-size: 10px;
+  line-height: 1.5;
+  padding-left: 4px;
+  border-left: 1px dotted rgba(255,255,255,0.12);
+  margin-top: 1px;
+}
+
+.kb-deriv em { font-style: normal; color: rgba(255,255,255,0.4); }
+.kb-deriv-rule { color: #c4b5fd; }
+.kb-deriv-leaf { color: rgba(255,255,255,0.7); }

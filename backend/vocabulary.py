@@ -71,7 +71,7 @@ CORE_RELATIONS: tuple[Relation, ...] = (
         transitive=True, inverse_ko="구성 요소 보유",
         match=(RO + "BFO_0000050",),
         aliases=("partof", "is-part-of", "component-of", "belongs-to", "부분", "일부",
-                 "의-일부", "부분-관계", "구성요소", "구성-요소", "소속", "속함", "포함됨"),
+                 "의-일부", "부분-관계", "구성요소", "구성-요소", "소속", "속함", "포함됨", "부품"),
         inverse_aliases=("has-part", "haspart", "has-component", "contains", "consists-of",
                          "composed-of", "includes", "구성", "포함", "포함한다", "가짐-부분"),
     ),
@@ -90,7 +90,7 @@ CORE_RELATIONS: tuple[Relation, ...] = (
         transitive=True, chains=(("part-of", "located-in"),), inverse_ko="위치 포함",
         match=(RO + "RO_0001025",),
         aliases=("located-at", "locatedin", "location", "is-located-in", "situated-in",
-                 "위치", "위치함", "에-위치", "소재", "소재지"),
+                 "위치", "위치함", "에-위치", "소재", "소재지", "에-있다", "에-있음", "에-존재"),
         inverse_aliases=("location-of", "contains-location", "위치-포함"),
     ),
     Relation(
@@ -114,8 +114,9 @@ CORE_RELATIONS: tuple[Relation, ...] = (
         "A happens before B. Transitive.",
         transitive=True, inverse_ko="후행",
         match=(RO + "BFO_0000063",),
-        aliases=("before", "prior-to", "followed-by", "선행", "앞섬", "이전"),
-        inverse_aliases=("follows", "after", "succeeds", "후행", "뒤따름", "이후"),
+        aliases=("before", "prior-to", "followed-by", "comes-before", "선행", "앞섬", "이전"),
+        inverse_aliases=("follows", "after", "succeeds", "comes-after", "후행", "뒤따름", "이후",
+                         "이후에-발생", "다음에-발생"),
     ),
     Relation(
         "depends-on", "의존", "depends on",
@@ -137,7 +138,7 @@ CORE_RELATIONS: tuple[Relation, ...] = (
         "A creates, produces, or develops B.",
         inverse_ko="생산자",
         aliases=("creates", "develops", "makes", "generates", "manufactures", "authored",
-                 "생산", "제작", "개발", "창작", "생성", "제조"),
+                 "생산", "제작", "개발", "창작", "생성", "제조", "만든다", "만듦", "만들다"),
         inverse_aliases=("produced-by", "created-by", "developed-by", "made-by",
                          "authored-by", "생산자", "제작자", "개발자"),
     ),
@@ -189,6 +190,10 @@ for _rel in CORE_RELATIONS:
         _FORWARD[_key(_a)] = _rel.id
     for _a in _rel.inverse_aliases:
         _INVERSE[_key(_a)] = _rel.id
+# Spacing varies in Korean ("구성 요소" / "구성요소"): also index without hyphens.
+for _table in (_FORWARD, _INVERSE):
+    for _k, _v in list(_table.items()):
+        _table.setdefault(_k.replace("-", ""), _v)
 
 
 @dataclass
@@ -199,17 +204,57 @@ class Resolution:
     notes: list[str] = field(default_factory=list)
 
 
+_HANGUL = re.compile(r"[가-힣]")
+# Predicate endings LLMs attach to Korean relation nouns ("사용한다", "원인이다",
+# "위치함"). Longest first. "한다/된다/하다/되다" also map to the "-함/-됨" noun
+# forms used in the alias lists ("속한다" → "속함").
+_KO_ENDINGS = ("입니다", "합니다", "됩니다", "이에요", "이다", "한다", "된다", "하다", "되다",
+               "있다", "있음", "함", "됨", "임")
+_KO_NOMINAL = {"한다": "함", "하다": "함", "합니다": "함", "된다": "됨", "되다": "됨", "됩니다": "됨"}
+# Particles left on the stem ("관련이 있다", "필요로 한다") or in front ("의 결과").
+_KO_TAIL = ("으로", "에서", "이", "가", "을", "를", "로", "에", "와", "과")
+_KO_HEAD = ("의-", "에-")
+
+
+def _korean_variants(key: str) -> list[str]:
+    """Base forms of a Korean predicate phrase, most specific first."""
+    stems = []
+    for end in _KO_ENDINGS:
+        if key.endswith(end) and len(key) > len(end):
+            stem = key[: -len(end)].rstrip("-")
+            stems.append(stem)
+            if end in _KO_NOMINAL:
+                stems.append(stem + _KO_NOMINAL[end])
+            break
+    out = []
+    for stem in [key, *stems]:
+        forms = [stem]
+        for tail in _KO_TAIL:
+            if stem.endswith(tail) and len(stem) - len(tail) >= 2:
+                forms.append(stem[: -len(tail)].rstrip("-"))
+                break
+        for form in list(forms):
+            for head in _KO_HEAD:
+                if form.startswith(head) and len(form) - len(head) >= 2:
+                    forms.append(form[len(head):])
+        out.extend(f for f in forms if len(f) >= 2)
+    return out
+
+
 def _lookup(label: str) -> tuple[str | None, bool]:
     key = _key(label)
     candidates = [key]
     for prefix in ("is-", "are-", "was-"):
         if key.startswith(prefix):
             candidates.append(key[len(prefix):])
-    for cand in candidates:
-        if cand in _FORWARD:
-            return _FORWARD[cand], False
-        if cand in _INVERSE:
-            return _INVERSE[cand], True
+    if _HANGUL.search(key):
+        candidates += _korean_variants(key)
+    for cand in dict.fromkeys(candidates):
+        for c in (cand, cand.replace("-", "")):
+            if c in _FORWARD:
+                return _FORWARD[c], False
+            if c in _INVERSE:
+                return _INVERSE[c], True
     return None, False
 
 

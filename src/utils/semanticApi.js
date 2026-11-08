@@ -67,11 +67,24 @@ export const ingestKnowledge = (graph, topic = '') =>
 
 export const getKnowledgeGraph = (limit = 2000) => requestJSON(`/api/knowledge/graph?limit=${limit}`);
 
-export const getKnowledgeSubgraph = (query, hops = 1) =>
-  jsonPost('/api/knowledge/subgraph', { query, hops });
+export const getKnowledgeSubgraph = (query, hops = 1, nodeIds = []) =>
+  jsonPost('/api/knowledge/subgraph', { query, hops, node_ids: nodeIds });
 
 export const deleteKnowledgeSource = (sourceId) =>
   requestJSON(`/api/knowledge/sources/${encodeURIComponent(sourceId)}`, { method: 'DELETE' });
+
+// ── Exploration (paths and facts with provenance) ───────────────────────────
+// graph = null searches the knowledge base instead of the canvas.
+
+export const explorePaths = (source, target, graph = null, options = {}) =>
+  jsonPost('/api/explore/paths', {
+    source, target, graph: graph ? directOnly(graph) : null, ...options,
+  });
+
+export const exploreFacts = (node, graph = null, options = {}) =>
+  jsonPost('/api/explore/facts', {
+    node, graph: graph ? directOnly(graph) : null, ...options,
+  });
 
 export async function runSPARQL(content, query, format = 'turtle') {
   return postJSON('/sparql', { content, query, format });

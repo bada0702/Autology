@@ -124,15 +124,28 @@ def test_verification_rejects_links():
     assert all("wikidata" not in e for e in g["edges"])
 
 
-def test_verification_switches_to_inverse_property():
-    # 애플 —[manufacturer]→ 아이폰 is backwards; the verifier says "b", so the
-    # link must switch to P176's inverse (P1056 product or material produced).
+def test_verification_switches_llm_link_to_inverse_property():
+    # The model picked P176 for "제조한 회사" but 애플 —[manufacturer]→ 아이폰 is
+    # backwards; the verifier says "b", so the link switches to P176's inverse
+    # (P1056 product or material produced).
     g = {"nodes": [_n("phone", "아이폰"), _n("apple", "애플")],
-         "edges": [_e("e1", "apple", "phone", "제조사")]}
-    summary = _link(g, _fake_chat({}, verify="b"))
-    assert summary["linked"]["제조사"] == {"id": "P1056", "method": "exact+inverse"}
+         "edges": [_e("e1", "apple", "phone", "제조한 회사")]}
+    summary = _link(g, _fake_chat({"links": {"제조한 회사": "P176"}}, verify="b"))
+    assert summary["linked"]["제조한 회사"] == {"id": "P1056", "method": "llm+inverse"}
     (edge,) = g["edges"]
     assert (edge["source"], edge["label"], edge["target"]) == ("apple", "produces", "phone")
+
+
+def test_verification_never_flips_exact_matches():
+    # "대한민국 수도 서울": the phrase is P36's own name, so it reads in P36's
+    # direction. Small models answered "b" here and turned a correct link into
+    # P1376 (capital of); an exact match may be rejected, never flipped.
+    g = {"nodes": [_n("kr", "대한민국"), _n("seoul", "서울")],
+         "edges": [_e("e1", "kr", "seoul", "수도")]}
+    summary = _link(g, _fake_chat({}, verify="b"))
+    assert summary["linked"]["수도"] == {"id": "P36", "method": "exact"}
+    (edge,) = g["edges"]
+    assert edge["wikidata"]["id"] == "P36" and (edge["source"], edge["target"]) == ("kr", "seoul")
 
 
 def test_inverse_properties_are_offered():

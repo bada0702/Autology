@@ -49,7 +49,8 @@ export default function RulePanel() {
     setReasoning(true);
     try {
       const res = await reasonWithBackend(graph);
-      graphDispatch({ type: 'APPLY_RULES', payload: res.inferred });
+      // Mirrors of asserted symmetric edges (B related-to A) are not drawn.
+      graphDispatch({ type: 'APPLY_RULES', payload: res.inferred.filter(e => !e.mirror) });
       setReasonResult({ issues: res.issues, stats: res.stats });
     } catch (err) {
       setReasonResult({ error: err.message });

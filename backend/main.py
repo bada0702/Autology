@@ -10,7 +10,7 @@ import os
 import sys
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # .env 로드 (선택적 검색 API 키, OLLAMA_BASE 등) — env를 읽는 다른 모듈 import 전에 실행
 try:
@@ -119,6 +119,23 @@ class KnowledgeSubgraphRequest(BaseModel):
     query: str = ""
     node_ids: List[str] = []
     hops: int = 1
+
+class ExplorePathsRequest(BaseModel):
+    source: str
+    target: str
+    graph: Optional[Dict[str, Any]] = None   # None → search the knowledge base
+    max_hops: int = 4
+    max_paths: int = 5
+    relations: List[str] = []
+    directed: bool = False
+    include_inferred: bool = True
+
+class ExploreFactsRequest(BaseModel):
+    node: str
+    graph: Optional[Dict[str, Any]] = None
+    relation: Optional[str] = None
+    direction: str = "both"
+    include_inferred: bool = True
 
 class ShaclRequest(BaseModel):
     data: str
@@ -357,6 +374,38 @@ async def knowledge_delete_source(source_id: str):
     """Undo one ingest: remove what only that source contributed."""
     from knowledge import get_kb
     return get_kb().delete_source(source_id)
+
+
+def _explore_graph(graph: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if graph is not None:
+        return graph
+    from knowledge import get_kb
+    return get_kb().graph(limit=10000)
+
+
+@app.post("/api/explore/paths")
+async def explore_paths(req: ExplorePathsRequest):
+    """Paths between two nodes (asserted + inferred), each step with its evidence."""
+    from explore import find_paths
+
+    def run():
+        return find_paths(_explore_graph(req.graph), req.source, req.target,
+                          req.max_hops, req.max_paths, req.relations or None,
+                          req.directed, req.include_inferred)
+    return await asyncio.to_thread(run)
+
+
+@app.post("/api/explore/facts")
+async def explore_facts(req: ExploreFactsRequest):
+    """Facts about a node (asserted + inferred), with sources and derivations."""
+    from explore import node_facts
+    if req.direction not in ("in", "out", "both"):
+        raise HTTPException(400, "direction must be in, out or both")
+
+    def run():
+        return node_facts(_explore_graph(req.graph), req.node, req.relation,
+                          req.direction, req.include_inferred)
+    return await asyncio.to_thread(run)
 
 
 @app.post("/api/semantic/shacl")

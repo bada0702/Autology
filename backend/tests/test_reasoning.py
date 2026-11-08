@@ -59,6 +59,16 @@ def test_transitivity_and_type_inheritance():
     assert ("heart", "part-of", "body") in t
 
 
+def test_symmetric_relations_are_inferred_both_ways():
+    g = {"nodes": [_n("a", "A"), _n("b", "B"), _n("c", "C")],
+         "edges": [_e("e1", "a", "b", "related-to"), _e("e2", "b", "c", "part-of")]}
+    inferred = analyze(g)["inferred"]
+    mirror = [e for e in inferred if (e["source"], e["label"], e["target"]) == ("b", "related-to", "a")]
+    assert len(mirror) == 1 and mirror[0]["rule"] == "prp-symp"
+    # The bare mirror of an asserted edge is flagged so the canvas can skip it.
+    assert mirror[0]["mirror"] is True and mirror[0]["premises"] == ["e1"]
+
+
 def test_property_chains():
     t = _triples(analyze(SAMPLE))
     assert ("alice", "member-of", "lab") in t        # member-of ∘ part-of
@@ -71,8 +81,9 @@ def test_provenance_points_to_premises():
     r = analyze(SAMPLE)
     ids = {e["id"] for e in SAMPLE["edges"]} | {e["id"] for e in r["inferred"]}
     for e in r["inferred"]:
-        assert e["rule"] in ("prp-trp", "prp-spo2", "cax-sco", "cax-eqc")
-        assert len(e["premises"]) == 2 and all(p in ids for p in e["premises"]), e
+        assert e["rule"] in ("prp-trp", "prp-spo2", "cax-sco", "cax-eqc", "prp-symp")
+        n_premises = 1 if e["rule"] == "prp-symp" else 2   # symmetry: one premise
+        assert len(e["premises"]) == n_premises and all(p in ids for p in e["premises"]), e
         assert "→" in e["explanation"]
     heart = next(e for e in r["inferred"] if (e["source"], e["target"]) == ("heart", "body"))
     assert heart["premises"] == ["e4", "e5"] and heart["rule"] == "prp-trp"

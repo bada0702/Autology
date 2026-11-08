@@ -55,6 +55,22 @@ def test_aliases_and_inverse_direction():
     assert res.relation == "produces" and res.flipped
 
 
+def test_korean_predicate_endings_and_particles():
+    cases = {
+        "사용한다": ("uses", False), "원인이다": ("causes", False), "위치함": ("located-in", False),
+        "속한다": ("part-of", False), "필요로 한다": ("depends-on", False),
+        "관련이 있다": ("related-to", False), "의 결과이다": ("causes", True),
+        "포함한다": ("part-of", True), "구성 요소이다": ("part-of", False),
+        "에 있다": ("located-in", False),
+    }
+    for phrase, (rel, flipped) in cases.items():
+        r = vocab.resolve(phrase, "Instance", "Instance")
+        assert (r.relation, r.flipped) == (rel, flipped), (phrase, r)
+    # Stripping must not turn unrelated phrases into core relations.
+    for phrase in ("좋아한다", "차이", "수도", "유발하는 질병", "태어난 곳", "보다 귀여움"):
+        assert vocab.resolve(phrase, "Instance", "Instance").relation == "custom", phrase
+
+
 def test_unknown_label_is_kept_as_custom():
     res = vocab.resolve("연비에 영향")
     assert res.relation == vocab.CUSTOM and res.label == "연비에 영향"

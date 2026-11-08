@@ -47,6 +47,7 @@ RULE_TEXT = {
     "cax-sco": "상위 클래스 상속",
     "cax-eqc": "동치 클래스",
     "prp-spo1": "상위 속성",
+    "prp-symp": "대칭성",
 }
 
 
@@ -136,6 +137,9 @@ def _infer(direct, node_by_id):
             if f.p == vocab.EQUIVALENT_CLASS:
                 eq_by_o[f.o].append(f)
         for f in list(facts):
+            # prp-symp
+            if f.p in vocab.SYMMETRIC:
+                changed |= add(Fact(f.o, f.p, f.s), "prp-symp", [f])
             # prp-trp
             if f.p in transitive:
                 for g2 in by_sp.get((f.o, f.p), ()):
@@ -177,6 +181,9 @@ def _materialize(order, why, direct, node_by_id):
         rule, premises = why[f]
         eid = f"inf_{i + 1}"
         edge_id[f] = eid
+        # The reverse reading of an asserted symmetric edge adds nothing to
+        # look at; it stays in the closure but the canvas need not draw it.
+        mirror = rule == "prp-symp" and isinstance(why.get(premises[0]), str)
         out.append({
             "id": eid,
             "source": f.s,
@@ -191,6 +198,7 @@ def _materialize(order, why, direct, node_by_id):
             "explanation": " + ".join(
                 f"{label_of(p.s)} {p.p} {label_of(p.o)}" for p in premises
             ) + f" → {RULE_TEXT.get(rule, rule)}({rule})",
+            **({"mirror": True} if mirror else {}),
         })
         if len(out) >= MAX_INFERRED:
             break

@@ -110,6 +110,10 @@ export default defineConfig({
         target: BACKEND,
         changeOrigin: true,
       },
+      '/api/explore': {
+        target: BACKEND,
+        changeOrigin: true,
+      },
       '/ws/crew': {
         target: BACKEND.replace(/^http/, 'ws'),
         ws: true,

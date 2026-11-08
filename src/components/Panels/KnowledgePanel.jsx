@@ -5,6 +5,7 @@ import {
   linkEntities, getKnowledgeStats, ingestKnowledge, getKnowledgeGraph,
   getKnowledgeSubgraph, deleteKnowledgeSource,
 } from '../../utils/semanticApi';
+import ExploreSection from './ExploreSection';
 import './RulePanel.css';
 import './KnowledgePanel.css';
 
@@ -75,12 +76,12 @@ export default function KnowledgePanel() {
     await refresh();
   });
 
-  const loadOntoCanvas = (data, highlightIds = []) => {
+  const loadOntoCanvas = (data, highlightIds = [], highlightEdgeIds = []) => {
     const positions = forceLayout(data.nodes, data.edges);
     const nodes = data.nodes.map(n => ({ ...n, ...(positions[n.id] || {}) }));
     dispatch({ type: 'LOAD_GRAPH', payload: { nodes, edges: data.edges } });
     if (highlightIds.length) {
-      dispatch({ type: 'SET_HIGHLIGHT', payload: { nodeIds: highlightIds, edgeIds: [] } });
+      dispatch({ type: 'SET_HIGHLIGHT', payload: { nodeIds: highlightIds, edgeIds: highlightEdgeIds } });
     }
   };
 
@@ -162,6 +163,8 @@ export default function KnowledgePanel() {
           </button>
         </div>
       </div>
+
+      <ExploreSection onLoad={loadOntoCanvas} busy={busy} setBusy={setBusy} setMessage={setMessage} />
 
       {message && (
         <div className={`kb-message kb-message--${message.kind}`}>
