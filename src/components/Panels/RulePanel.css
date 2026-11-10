@@ -332,6 +332,29 @@
   background: rgba(234,179,8,0.22);
 }
 
+.rule-reasoner {
+  border-top: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  background: rgba(167,139,250,0.04);
+}
+
+.rule-reasoner .rule-violations-title {
+  color: #a78bfa;
+}
+
+.rule-violation--info span {
+  color: #bfdbfe;
+  background: rgba(59,130,246,0.22);
+}
+
+.rule-violation--clickable {
+  cursor: pointer;
+}
+
+.rule-violation--clickable:hover p {
+  color: rgba(255,255,255,0.85);
+}
+
 .rule-violation p {
   margin: 0;
   font-size: 10.5px;

@@ -1,0 +1,32 @@
+{
+  "description": "Held-out entity graphs, written after the linking prompt was tuned on entities.json and never used to change it. Same format as entities.json.",
+  "graphs": [
+    {"topic": "아시아 지리",
+     "nodes": [["서울", "Instance", ["Q8684"]], ["도쿄", "Instance", ["Q1490"]], ["베이징", "Instance", ["Q956"]],
+               ["일본", "Instance", ["Q17"]], ["중국", "Instance", ["Q148"]], ["후지산", "Instance", ["Q39231"]]],
+     "edges": [["도쿄", "located-in", "일본"], ["베이징", "located-in", "중국"], ["후지산", "located-in", "일본"],
+               ["일본", "이웃 나라", "중국"], ["서울", "가까운 도시", "도쿄"]]},
+    {"topic": "할리우드 영화",
+     "nodes": [["타이타닉", "Instance", ["Q44578"]], ["에일리언", "Instance", ["Q103569"]],
+               ["제임스 카메론", "Instance", ["Q42574"]], ["영화", "Class", ["Q11424"]]],
+     "edges": [["타이타닉", "is-a", "영화"], ["에일리언", "is-a", "영화"], ["타이타닉", "감독", "제임스 카메론"]]},
+    {"topic": "동물 분류",
+     "nodes": [["고양이", "Instance", ["Q146"]], ["개", "Instance", ["Q144"]], ["호랑이", "Instance", ["Q19939"]],
+               ["사자", "Instance", ["Q140"]], ["포유류", "Class", ["Q7377"]]],
+     "edges": [["고양이", "is-a", "포유류"], ["개", "is-a", "포유류"], ["호랑이", "is-a", "포유류"], ["사자", "is-a", "포유류"]]},
+    {"topic": "자동차 제조사",
+     "nodes": [["포드", "Instance", ["Q44294"]], ["도요타", "Instance", ["Q53268"]], ["현대자동차", "Instance", ["Q55931"]],
+               ["자동차", "Class", ["Q1420"]]],
+     "edges": [["포드", "produces", "자동차"], ["도요타", "produces", "자동차"], ["현대자동차", "produces", "자동차"]]},
+    {"topic": "프로그래밍 언어",
+     "nodes": [["루비", "Instance", ["Q161053"]], ["스위프트", "Instance", ["Q17118377"]], ["고", "Instance", ["Q37227"]]],
+     "edges": [["루비", "비슷한 언어", "스위프트"], ["고", "비슷한 언어", "루비"]]},
+    {"topic": "우리 회사 내부 시스템",
+     "nodes": [["아틀라스", "Instance", [], "사내 데이터 플랫폼의 코드명"],
+               ["오리온", "Instance", [], "개발팀 배포 자동화 도구의 이름"],
+               ["제우스", "Instance", [], "개발팀 슬랙 알림 봇의 이름"],
+               ["은하수", "Instance", [], "본사 3층 사내 식당 이름"],
+               ["태양", "Instance", [], "회사 앞 세탁소 상호"]],
+     "edges": [["오리온", "uses", "아틀라스"], ["제우스", "uses", "오리온"], ["은하수", "located-in", "태양"]]}
+  ]
+}

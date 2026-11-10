@@ -1,0 +1,426 @@
+{
+ "description": "Graphs whose nodes should be linked to Wikidata items. expect: acceptable Q-ids, or [] when the node names no real-world item and must stay unlinked. Several labels are deliberately ambiguous (수성 planet vs element, 아마존 company vs river, 자바 language vs island, 파이썬 language vs snake, 애플 company vs fruit). Q-ids are verified against Wikidata by run_eval.py --verify-gold. A node may carry a 4th element, its description. The \"사내 프로젝트\" graph has local names that also exist on Wikidata in another sense (아폴로, 피닉스, 해바라기): they test that the linker does not just take an exact-label match.",
+ "graphs": [
+  {
+   "topic": "태양계",
+   "nodes": [
+    [
+     "수성",
+     "Instance",
+     [
+      "Q308"
+     ]
+    ],
+    [
+     "금성",
+     "Instance",
+     [
+      "Q313"
+     ]
+    ],
+    [
+     "지구",
+     "Instance",
+     [
+      "Q2"
+     ]
+    ],
+    [
+     "태양",
+     "Instance",
+     [
+      "Q525"
+     ]
+    ],
+    [
+     "달",
+     "Instance",
+     [
+      "Q405"
+     ]
+    ],
+    [
+     "목성",
+     "Instance",
+     [
+      "Q319"
+     ]
+    ],
+    [
+     "행성",
+     "Class",
+     [
+      "Q634"
+     ]
+    ]
+   ],
+   "edges": [
+    [
+     "수성",
+     "is-a",
+     "행성"
+    ],
+    [
+     "금성",
+     "is-a",
+     "행성"
+    ],
+    [
+     "지구",
+     "is-a",
+     "행성"
+    ],
+    [
+     "목성",
+     "is-a",
+     "행성"
+    ],
+    [
+     "달",
+     "orbits",
+     "지구"
+    ],
+    [
+     "지구",
+     "orbits",
+     "태양"
+    ]
+   ]
+  },
+  {
+   "topic": "IT 기업",
+   "nodes": [
+    [
+     "애플",
+     "Instance",
+     [
+      "Q312"
+     ]
+    ],
+    [
+     "아마존",
+     "Instance",
+     [
+      "Q3884"
+     ]
+    ],
+    [
+     "구글",
+     "Instance",
+     [
+      "Q95"
+     ]
+    ],
+    [
+     "마이크로소프트",
+     "Instance",
+     [
+      "Q2283"
+     ]
+    ],
+    [
+     "아이폰",
+     "Instance",
+     [
+      "Q2766"
+     ]
+    ],
+    [
+     "마이크로소프트 윈도우",
+     "Instance",
+     [
+      "Q1406"
+     ]
+    ],
+    [
+     "기업",
+     "Class",
+     [
+      "Q4830453",
+      "Q783794",
+      "Q167037"
+     ]
+    ]
+   ],
+   "edges": [
+    [
+     "애플",
+     "is-a",
+     "기업"
+    ],
+    [
+     "아마존",
+     "is-a",
+     "기업"
+    ],
+    [
+     "구글",
+     "is-a",
+     "기업"
+    ],
+    [
+     "마이크로소프트",
+     "is-a",
+     "기업"
+    ],
+    [
+     "애플",
+     "produces",
+     "아이폰"
+    ],
+    [
+     "마이크로소프트",
+     "produces",
+     "마이크로소프트 윈도우"
+    ]
+   ]
+  },
+  {
+   "topic": "프로그래밍 언어",
+   "nodes": [
+    [
+     "파이썬",
+     "Instance",
+     [
+      "Q28865"
+     ]
+    ],
+    [
+     "자바",
+     "Instance",
+     [
+      "Q251"
+     ]
+    ],
+    [
+     "자바스크립트",
+     "Instance",
+     [
+      "Q2005"
+     ]
+    ],
+    [
+     "C",
+     "Instance",
+     [
+      "Q15777"
+     ]
+    ],
+    [
+     "러스트",
+     "Instance",
+     [
+      "Q575650"
+     ]
+    ],
+    [
+     "귀도 반 로섬",
+     "Instance",
+     [
+      "Q30942"
+     ]
+    ],
+    [
+     "프로그래밍 언어",
+     "Class",
+     [
+      "Q9143"
+     ]
+    ]
+   ],
+   "edges": [
+    [
+     "파이썬",
+     "is-a",
+     "프로그래밍 언어"
+    ],
+    [
+     "자바",
+     "is-a",
+     "프로그래밍 언어"
+    ],
+    [
+     "자바스크립트",
+     "is-a",
+     "프로그래밍 언어"
+    ],
+    [
+     "C",
+     "is-a",
+     "프로그래밍 언어"
+    ],
+    [
+     "러스트",
+     "is-a",
+     "프로그래밍 언어"
+    ],
+    [
+     "귀도 반 로섬",
+     "만든 사람",
+     "파이썬"
+    ]
+   ]
+  },
+  {
+   "topic": "유럽 지리",
+   "nodes": [
+    [
+     "파리",
+     "Instance",
+     [
+      "Q90"
+     ]
+    ],
+    [
+     "프랑스",
+     "Instance",
+     [
+      "Q142"
+     ]
+    ],
+    [
+     "베를린",
+     "Instance",
+     [
+      "Q64"
+     ]
+    ],
+    [
+     "독일",
+     "Instance",
+     [
+      "Q183"
+     ]
+    ],
+    [
+     "라인강",
+     "Instance",
+     [
+      "Q584"
+     ]
+    ],
+    [
+     "알프스산맥",
+     "Instance",
+     [
+      "Q1286"
+     ]
+    ],
+    [
+     "런던",
+     "Instance",
+     [
+      "Q84"
+     ]
+    ]
+   ],
+   "edges": [
+    [
+     "파리",
+     "located-in",
+     "프랑스"
+    ],
+    [
+     "베를린",
+     "located-in",
+     "독일"
+    ],
+    [
+     "라인강",
+     "흐르는 나라",
+     "독일"
+    ],
+    [
+     "알프스산맥",
+     "located-in",
+     "프랑스"
+    ],
+    [
+     "프랑스",
+     "국경",
+     "독일"
+    ]
+   ]
+  },
+  {
+   "topic": "사내 프로젝트 관리",
+   "nodes": [
+    [
+     "2분기 마케팅 캠페인",
+     "Instance",
+     []
+    ],
+    [
+     "김 대리",
+     "Instance",
+     []
+    ],
+    [
+     "예산 승인 절차",
+     "Instance",
+     []
+    ],
+    [
+     "회의실 B",
+     "Instance",
+     []
+    ],
+    [
+     "신제품 출시 일정",
+     "Instance",
+     []
+    ],
+    [
+     "아폴로",
+     "Instance",
+     [],
+     "사내 결제 시스템 개편 프로젝트의 코드명"
+    ],
+    [
+     "피닉스",
+     "Instance",
+     [],
+     "개발팀이 운영하는 사내 테스트 서버"
+    ],
+    [
+     "해바라기",
+     "Instance",
+     [],
+     "마케팅팀 사내 동호회 이름"
+    ]
+   ],
+   "edges": [
+    [
+     "김 대리",
+     "participates-in",
+     "2분기 마케팅 캠페인"
+    ],
+    [
+     "2분기 마케팅 캠페인",
+     "depends-on",
+     "예산 승인 절차"
+    ],
+    [
+     "신제품 출시 일정",
+     "depends-on",
+     "2분기 마케팅 캠페인"
+    ],
+    [
+     "김 대리",
+     "participates-in",
+     "아폴로"
+    ],
+    [
+     "아폴로",
+     "uses",
+     "피닉스"
+    ],
+    [
+     "김 대리",
+     "member-of",
+     "해바라기"
+    ]
+   ]
+  }
+ ]
+}

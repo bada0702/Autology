@@ -10,11 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import re
 from urllib.parse import quote
+
+import vocabulary as vocab
 
 
 BASE_IRI = "http://autology.local/ontology#"
 BASE_NS = "http://autology.local/ontology"
+WIKIDATA_ENTITY = "http://www.wikidata.org/entity/"
 
 
 @dataclass
@@ -39,12 +43,30 @@ def _local_name(value: str, fallback: str) -> str:
     return quote(raw.replace(" ", "_"), safe="-_.~")
 
 
-def _node_uri(node: dict[str, Any], index: int, uri_ref) -> Any:
-    local = _local_name(node.get("label") or node.get("id"), f"n{index + 1}")
-    return uri_ref(BASE_IRI + local)
+_HANGUL = re.compile(r"[가-힣]")
 
 
-def graph_to_rdf(graph: dict[str, Any]):
+def _lang_of(text: str) -> str:
+    return "ko" if _HANGUL.search(text or "") else "en"
+
+
+def _text(value: str, literal_cls) -> Any:
+    return literal_cls(value, lang=_lang_of(value))
+
+
+def graph_to_rdf(graph: dict[str, Any], include_inferred: bool = False):
+    """Convert Autology graph JSON to an RDFLib graph.
+
+    Edge labels are resolved against the core vocabulary (vocabulary.py), so
+    LLM phrasings like "is-a" become rdfs:subClassOf / rdf:type and core
+    relations carry their OWL characteristics (transitive, inverse, chains).
+    Node URIs come from labels for readability, made unique per graph.
+    Inferred edges are skipped by default: a reasoner should re-derive them.
+    """
+    from rdflib.collection import Collection
+    from rdflib.namespace import SKOS
+    from rdflib import BNode
+
     _, Graph, Literal, Namespace, RDF, RDFS, OWL, URIRef = _require_rdflib()
 
     g = Graph()
@@ -53,28 +75,42 @@ def graph_to_rdf(graph: dict[str, Any]):
     g.bind("owl", OWL)
     g.bind("rdf", RDF)
     g.bind("rdfs", RDFS)
+    g.bind("skos", SKOS)
 
     g.add((URIRef(BASE_NS), RDF.type, OWL.Ontology))
 
     nodes = graph.get("nodes") or []
     edges = graph.get("edges") or []
     uri_by_id: dict[str, Any] = {}
+    type_by_id: dict[str, str] = {}
+    used_locals: set[str] = set()
+    used_relations: set[str] = set()
 
     for i, node in enumerate(nodes):
-        uri = _node_uri(node, i, URIRef)
+        base = _local_name(node.get("label") or node.get("id"), f"n{i + 1}")
+        local, n = base, 2
+        while local in used_locals:
+            local, n = f"{base}_{n}", n + 1
+        used_locals.add(local)
+        uri = URIRef(BASE_IRI + local)
         uri_by_id[node.get("id")] = uri
         node_type = node.get("type") or "Class"
-        if node_type == "Class":
-            g.add((uri, RDF.type, OWL.Class))
-        elif node_type == "Literal":
+        type_by_id[node.get("id")] = node_type
+        if node_type == "Literal":
             g.add((uri, RDF.type, RDFS.Datatype))
-        else:
+        elif node_type == "Instance":
             g.add((uri, RDF.type, OWL.NamedIndividual))
+        else:
+            g.add((uri, RDF.type, OWL.Class))
 
         if node.get("label"):
-            g.add((uri, RDFS.label, Literal(node["label"], lang="ko")))
+            g.add((uri, RDFS.label, _text(node["label"], Literal)))
         if node.get("description"):
-            g.add((uri, RDFS.comment, Literal(node["description"], lang="ko")))
+            g.add((uri, RDFS.comment, _text(node["description"], Literal)))
+        if node.get("wikidata_id"):
+            # skos:exactMatch rather than owl:sameAs: it links without importing
+            # Wikidata's semantics into the reasoner (and works for classes).
+            g.add((uri, SKOS.exactMatch, URIRef(WIKIDATA_ENTITY + node["wikidata_id"])))
         for prop in node.get("properties") or []:
             key = prop.get("key")
             if not key:
@@ -82,26 +118,81 @@ def graph_to_rdf(graph: dict[str, Any]):
             pred = URIRef(BASE_IRI + _local_name(key, "property"))
             g.add((uri, pred, Literal(str(prop.get("value", "")))))
 
+    builtin = {
+        vocab.TYPE: RDF.type,
+        vocab.SUBCLASS: RDFS.subClassOf,
+        vocab.EQUIVALENT_CLASS: OWL.equivalentClass,
+        vocab.SAME_AS: OWL.sameAs,
+        vocab.DISJOINT: OWL.disjointWith,
+    }
+
+    def relation_uri(rel_id: str):
+        return URIRef(BASE_IRI + _local_name(rel_id, "related-to"))
+
     for edge in edges:
-        src = uri_by_id.get(edge.get("source"))
-        tgt = uri_by_id.get(edge.get("target"))
+        if edge.get("inferred") and not include_inferred:
+            continue
+        s_id, t_id = edge.get("source"), edge.get("target")
+        res = vocab.resolve(edge.get("label") or "", type_by_id.get(s_id), type_by_id.get(t_id))
+        if res.flipped:
+            s_id, t_id = t_id, s_id
+        src, tgt = uri_by_id.get(s_id), uri_by_id.get(t_id)
         if not src or not tgt:
             continue
 
-        label = edge.get("label") or "relatedTo"
-        if label == "rdf:type":
-            pred = RDF.type
-        elif label == "rdfs:subClassOf":
-            pred = RDFS.subClassOf
-        elif label == "owl:equivalentClass":
-            pred = OWL.equivalentClass
-        elif label == "owl:disjointWith":
-            pred = OWL.disjointWith
-        else:
-            pred = URIRef(BASE_IRI + _local_name(label, "relatedTo"))
+        if res.relation in builtin:
+            pred = builtin[res.relation]
+        elif res.relation == vocab.CUSTOM:
+            pred = relation_uri(res.label)
             g.add((pred, RDF.type, OWL.ObjectProperty))
-            g.add((pred, RDFS.label, Literal(label, lang="ko")))
+            g.add((pred, RDFS.label, _text(res.label, Literal)))
+            # Vocabulary links made by vocab_rag.py
+            wd = edge.get("wikidata") or {}
+            if wd.get("id"):
+                g.add((pred, SKOS.exactMatch, URIRef(WIKIDATA_ENTITY + wd["id"])))
+                if wd.get("transitive"):
+                    g.add((pred, RDF.type, OWL.TransitiveProperty))
+            sup = edge.get("super_relation")
+            if sup in vocab.BY_ID and sup not in builtin:
+                if edge.get("super_inverse"):
+                    inv = relation_uri(f"inv-{sup}")
+                    g.add((inv, RDF.type, OWL.ObjectProperty))
+                    g.add((inv, OWL.inverseOf, relation_uri(sup)))
+                    g.add((pred, RDFS.subPropertyOf, inv))
+                else:
+                    g.add((pred, RDFS.subPropertyOf, relation_uri(sup)))
+                used_relations.add(sup)
+        else:
+            pred = relation_uri(res.relation)
+            used_relations.add(res.relation)
         g.add((src, pred, tgt))
+
+    # Declare the axioms of every core relation that was used (plus the
+    # relations their property chains depend on).
+    pending = list(used_relations)
+    declared: set[str] = set()
+    while pending:
+        rel_id = pending.pop()
+        if rel_id in declared or rel_id not in vocab.BY_ID:
+            continue
+        declared.add(rel_id)
+        rel = vocab.BY_ID[rel_id]
+        pred = relation_uri(rel_id)
+        g.add((pred, RDF.type, OWL.ObjectProperty))
+        g.add((pred, RDFS.label, Literal(rel.ko, lang="ko")))
+        g.add((pred, RDFS.label, Literal(rel.en, lang="en")))
+        g.add((pred, RDFS.comment, Literal(rel.description, lang="en")))
+        if rel.transitive:
+            g.add((pred, RDF.type, OWL.TransitiveProperty))
+        if rel.symmetric:
+            g.add((pred, RDF.type, OWL.SymmetricProperty))
+        for iri in rel.match:
+            g.add((pred, SKOS.exactMatch, URIRef(iri)))
+        for p1, p2 in rel.chains:
+            chain = BNode()
+            Collection(g, chain, [relation_uri(p1), relation_uri(p2)])
+            g.add((pred, OWL.propertyChainAxiom, chain))
+            pending.extend([p1, p2])
 
     return g
 
@@ -126,7 +217,18 @@ def parse_rdf_document(content: str, rdf_format: str = "turtle") -> dict[str, An
       if isinstance(term, URIRef) and not str(term).startswith("http://www.w3.org/"):
           resources.add(term)
 
+    # Property and ontology declarations describe the schema, not the domain:
+    # they must not show up as canvas nodes.
+    schema_types = {
+        OWL.Ontology, RDF.Property, OWL.ObjectProperty, OWL.DatatypeProperty,
+        OWL.AnnotationProperty, OWL.TransitiveProperty, OWL.SymmetricProperty,
+    }
+    schema_terms = {s for s, o in g.subject_objects(RDF.type) if o in schema_types}
+    schema_terms |= set(g.predicates())
+
     for s, p, o in g:
+        if s in schema_terms:
+            continue
         remember(s)
         remember(o)
         if p == RDFS.label and isinstance(o, Literal):
@@ -148,6 +250,8 @@ def parse_rdf_document(content: str, rdf_format: str = "turtle") -> dict[str, An
             edges.append((s, "owl:equivalentClass", o))
         elif p == OWL.disjointWith:
             edges.append((s, "owl:disjointWith", o))
+        elif p == OWL.sameAs:
+            edges.append((s, "owl:sameAs", o))
         elif isinstance(o, URIRef) and not str(p).startswith("http://www.w3.org/"):
             edges.append((s, _display_name(p), o))
 

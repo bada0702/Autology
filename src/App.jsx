@@ -8,6 +8,7 @@ import Toolbar from './components/Toolbar/Toolbar';
 import PropertyPanel from './components/Panels/PropertyPanel';
 import WorkflowPanel from './components/Panels/WorkflowPanel';
 import RulePanel from './components/Panels/RulePanel';
+import KnowledgePanel from './components/Panels/KnowledgePanel';
 import MiniMap from './components/MiniMap/MiniMap';
 import ChatPanel from './components/Panels/ChatPanel';
 import CodeEditorPanel from './components/CodeEditor/CodeEditorPanel';
@@ -43,10 +44,14 @@ export default function App() {
                       className={`left-tab${leftTab === 'rules' ? ' left-tab--active' : ''}`}
                       onClick={() => setLeftTab('rules')}
                     >규칙 엔진</button>
+                    <button
+                      className={`left-tab${leftTab === 'knowledge' ? ' left-tab--active' : ''}`}
+                      onClick={() => setLeftTab('knowledge')}
+                    >지식 베이스</button>
                   </div>
-                  {leftTab === 'workflow'
-                    ? <WorkflowPanel onOpenChat={() => setShowChat(true)} />
-                    : <RulePanel />}
+                  {leftTab === 'workflow' && <WorkflowPanel onOpenChat={() => setShowChat(true)} />}
+                  {leftTab === 'rules' && <RulePanel />}
+                  {leftTab === 'knowledge' && <KnowledgePanel />}
                 </div>
 
                 <div className="canvas-area">

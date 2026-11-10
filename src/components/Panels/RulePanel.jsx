@@ -1,6 +1,8 @@
 import React, { useContext, useState } from 'react';
 import RuleContext from '../../context/RuleContext';
 import { useRuleEngine } from '../../hooks/useRuleEngine';
+import GraphContext from '../../context/GraphContext';
+import { reasonWithBackend } from '../../utils/semanticApi';
 import './RulePanel.css';
 
 const RULE_TYPES = [
@@ -39,6 +41,31 @@ export default function RulePanel() {
   const { apply, clearInferred, inferredCount, semanticViolations } = useRuleEngine();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const { state: graph, dispatch: graphDispatch } = useContext(GraphContext);
+  const [reasoning, setReasoning] = useState(false);
+  const [reasonResult, setReasonResult] = useState(null);   // { issues, stats } | { error }
+
+  const runReasoner = async () => {
+    setReasoning(true);
+    try {
+      const res = await reasonWithBackend(graph);
+      // Mirrors of asserted symmetric edges (B related-to A) are not drawn.
+      graphDispatch({ type: 'APPLY_RULES', payload: res.inferred.filter(e => !e.mirror) });
+      const mirrors = res.inferred.filter(e => e.mirror).length;
+      setReasonResult({ issues: res.issues, stats: { ...res.stats, mirrors } });
+    } catch (err) {
+      setReasonResult({ error: err.message });
+    } finally {
+      setReasoning(false);
+    }
+  };
+
+  const focusIssue = (issue) => {
+    graphDispatch({
+      type: 'SET_HIGHLIGHT',
+      payload: { nodeIds: issue.node_ids || [], edgeIds: issue.edge_ids || [] },
+    });
+  };
 
   const handleAdd = () => {
     if (!form.label.trim()) return;
@@ -68,12 +95,49 @@ export default function RulePanel() {
         <button className="rule-apply-btn" onClick={apply} disabled={state.rules.length === 0}>
           ⚡ 규칙 적용
         </button>
+        <button
+          className="rule-apply-btn"
+          onClick={runReasoner}
+          disabled={reasoning || graph.nodes.length === 0}
+          title="관계 어휘의 OWL 규칙(이행성·속성 체인·상속)으로 추론하고 그래프를 검증합니다"
+        >
+          {reasoning ? '추론 중…' : '🧠 OWL 추론·검증'}
+        </button>
         {inferredCount > 0 && (
-          <button className="rule-clear-btn" onClick={clearInferred}>
+          <button className="rule-clear-btn" onClick={() => { clearInferred(); setReasonResult(null); }}>
             × 제거
           </button>
         )}
       </div>
+
+      {reasonResult && (
+        <div className="rule-violations rule-reasoner">
+          <div className="rule-violations-title">
+            {reasonResult.error
+              ? '추론 실패'
+              : `추론 ${reasonResult.stats.inferred_edges - reasonResult.stats.mirrors}개`
+                + (reasonResult.stats.mirrors ? ` (+대칭 역방향 ${reasonResult.stats.mirrors}개, 표시 생략)` : '')
+                + ` · 오류 ${reasonResult.stats.errors} · 경고 ${reasonResult.stats.warnings}`}
+          </div>
+          {reasonResult.error && (
+            <div className="rule-violation rule-violation--error"><span>!</span><p>{reasonResult.error}</p></div>
+          )}
+          {(reasonResult.issues || []).map((v, i) => (
+            <div
+              key={`${v.code}_${i}`}
+              className={`rule-violation rule-violation--${v.severity} rule-violation--clickable`}
+              onClick={() => focusIssue(v)}
+              title="클릭하면 관련 노드·엣지를 강조합니다"
+            >
+              <span>{v.severity === 'error' ? '!' : v.severity === 'warn' ? '?' : 'i'}</span>
+              <p>{v.message}</p>
+            </div>
+          ))}
+          {!reasonResult.error && reasonResult.issues.length === 0 && (
+            <div className="rule-violations-more">발견된 문제가 없습니다.</div>
+          )}
+        </div>
+      )}
 
       <div className="rule-list">
         {state.rules.length === 0 && (

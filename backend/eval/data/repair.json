@@ -1,0 +1,27 @@
+{
+  "description": "Graphs with one deliberately false statement that breaks a logic rule. edges: [id, source, relation, target]; bad: the edge id that is false. Nodes: [label, type] with I = Instance, C = Class. A repair counts as correct only if it removes exactly the false edge.",
+  "cases": [
+    {"topic": "인체", "nodes": [["심장", "I"], ["순환계", "I"], ["인체", "I"]],
+     "edges": [["a", "심장", "part-of", "순환계"], ["b", "순환계", "part-of", "심장"], ["c", "순환계", "part-of", "인체"]], "bad": "b"},
+    {"topic": "지리", "nodes": [["서울", "I"], ["대한민국", "I"], ["아시아", "I"]],
+     "edges": [["a", "서울", "located-in", "대한민국"], ["b", "대한민국", "located-in", "서울"], ["c", "대한민국", "located-in", "아시아"]], "bad": "b"},
+    {"topic": "자동차", "nodes": [["바퀴", "I"], ["자동차", "I"]],
+     "edges": [["a", "자동차", "part-of", "바퀴"], ["b", "바퀴", "part-of", "자동차"]], "bad": "a"},
+    {"topic": "학교 과정", "nodes": [["초등학교", "I"], ["중학교", "I"], ["고등학교", "I"]],
+     "edges": [["a", "고등학교", "precedes", "초등학교"], ["b", "초등학교", "precedes", "중학교"], ["c", "중학교", "precedes", "고등학교"]], "bad": "a"},
+    {"topic": "유럽 지리", "nodes": [["파리", "I"], ["프랑스", "I"], ["유럽", "I"]],
+     "edges": [["a", "파리", "located-in", "프랑스"], ["b", "유럽", "located-in", "파리"], ["c", "프랑스", "located-in", "유럽"]], "bad": "b"},
+    {"topic": "자동차 구조", "nodes": [["피스톤", "I"], ["엔진", "I"], ["자동차", "I"]],
+     "edges": [["a", "자동차", "part-of", "피스톤"], ["b", "피스톤", "part-of", "엔진"], ["c", "엔진", "part-of", "자동차"]], "bad": "a"},
+    {"topic": "생물 분류", "nodes": [["렉스", "I"], ["개", "C"], ["동물", "C"], ["식물", "C"]],
+     "edges": [["a", "렉스", "rdf:type", "개"], ["b", "개", "rdfs:subClassOf", "동물"], ["c", "렉스", "rdf:type", "식물"], ["d", "동물", "owl:disjointWith", "식물"]], "bad": "c"},
+    {"topic": "조류", "nodes": [["참새", "I"], ["조류", "C"], ["포유류", "C"]],
+     "edges": [["a", "참새", "rdf:type", "포유류"], ["b", "참새", "rdf:type", "조류"], ["c", "조류", "owl:disjointWith", "포유류"]], "bad": "a"},
+    {"topic": "원소", "nodes": [["구리", "I"], ["금속", "C"], ["비금속", "C"]],
+     "edges": [["a", "구리", "rdf:type", "금속"], ["b", "구리", "rdf:type", "비금속"], ["c", "금속", "owl:disjointWith", "비금속"]], "bad": "b"},
+    {"topic": "해양 동물", "nodes": [["고래", "C"], ["포유류", "C"], ["어류", "C"]],
+     "edges": [["a", "고래", "rdfs:subClassOf", "어류"], ["b", "고래", "rdfs:subClassOf", "포유류"], ["c", "포유류", "owl:disjointWith", "어류"]], "bad": "a"},
+    {"topic": "도형", "nodes": [["정사각형", "C"], ["사각형", "C"], ["원", "C"]],
+     "edges": [["a", "정사각형", "rdfs:subClassOf", "사각형"], ["b", "정사각형", "rdfs:subClassOf", "원"], ["c", "사각형", "owl:disjointWith", "원"]], "bad": "b"}
+  ]
+}

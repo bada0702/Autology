@@ -4,6 +4,10 @@ import http from 'http'
 import https from 'https'
 import { URL } from 'url'
 
+// The backend binds 127.0.0.1; "localhost" may resolve to ::1 first on newer
+// Node versions, which makes every proxied request time out.
+const BACKEND = process.env.AUTOLOGY_BACKEND_URL || 'http://127.0.0.1:8000'
+
 function dynamicOllamaProxy() {
   return {
     name: 'dynamic-ollama-proxy',
@@ -79,28 +83,44 @@ export default defineConfig({
     allowedHosts: ['chojungwon.iptime.org'],
     proxy: {
       '/api/crew': {
-        target: 'http://localhost:8000',
+        target: BACKEND,
         changeOrigin: true,
       },
       '/api/semantic': {
-        target: 'http://localhost:8000',
+        target: BACKEND,
         changeOrigin: true,
       },
       '/api/ollama': {
-        target: 'http://localhost:8000',
+        target: BACKEND,
         changeOrigin: true,
       },
       '/api/memory': {
-        target: 'http://localhost:8000',
+        target: BACKEND,
+        changeOrigin: true,
+      },
+      '/api/vocabulary': {
+        target: BACKEND,
+        changeOrigin: true,
+      },
+      '/api/entities': {
+        target: BACKEND,
+        changeOrigin: true,
+      },
+      '/api/knowledge': {
+        target: BACKEND,
+        changeOrigin: true,
+      },
+      '/api/explore': {
+        target: BACKEND,
         changeOrigin: true,
       },
       '/ws/crew': {
-        target: 'ws://localhost:8000',
+        target: BACKEND.replace(/^http/, 'ws'),
         ws: true,
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8000',
+        target: BACKEND,
         changeOrigin: true,
       },
     },

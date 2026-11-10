@@ -10,7 +10,7 @@ import os
 import sys
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 # .env 로드 (선택적 검색 API 키, OLLAMA_BASE 등) — env를 읽는 다른 모듈 import 전에 실행
 try:
@@ -49,6 +49,12 @@ async def lifespan(app: FastAPI):
     if not os.getenv("AUTOLOGY_SKIP_OLLAMA_AUTOSTART"):
         # 블로킹 호출이므로 이벤트 루프를 막지 않도록 스레드에서 실행
         await asyncio.get_event_loop().run_in_executor(None, ensure_ollama_running)
+        # Wikidata 관계 사전 임베딩 인덱스를 백그라운드에서 준비 (첫 빌드는 수 분)
+        try:
+            import vocab_rag
+            vocab_rag.warm_up()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("vocabulary warm-up skipped: %s", exc)
     yield
     shutdown_ollama()
 
@@ -89,6 +95,47 @@ class SparqlRequest(BaseModel):
     content: str
     query: str
     format: str = "turtle"
+
+class ReasonRequest(BaseModel):
+    graph: Dict[str, Any]
+
+class VocabSearchRequest(BaseModel):
+    query: str
+    k: int = 5
+
+class VocabLinkRequest(BaseModel):
+    graph: Dict[str, Any]
+    use_llm: bool = True
+
+class EntityLinkRequest(BaseModel):
+    graph: Dict[str, Any]
+    topic: str = ""
+
+class KnowledgeIngestRequest(BaseModel):
+    graph: Dict[str, Any]
+    topic: str = ""
+
+class KnowledgeSubgraphRequest(BaseModel):
+    query: str = ""
+    node_ids: List[str] = []
+    hops: int = 1
+
+class ExplorePathsRequest(BaseModel):
+    source: str
+    target: str
+    graph: Optional[Dict[str, Any]] = None   # None → search the knowledge base
+    max_hops: int = 4
+    max_paths: int = 5
+    relations: List[str] = []
+    directed: bool = False
+    include_inferred: bool = True
+
+class ExploreFactsRequest(BaseModel):
+    node: str
+    graph: Optional[Dict[str, Any]] = None
+    relation: Optional[str] = None
+    direction: str = "both"
+    include_inferred: bool = True
 
 class ShaclRequest(BaseModel):
     data: str
@@ -192,7 +239,7 @@ async def health():
 @app.get("/api/semantic/capabilities")
 async def semantic_capabilities():
     """Report availability of optional semantic-web engines."""
-    caps = {"rdflib": False, "pyshacl": False}
+    caps = {"rdflib": False, "pyshacl": False, "reasoner": True}
     try:
         import rdflib  # noqa: F401
         caps["rdflib"] = True
@@ -237,6 +284,128 @@ async def semantic_sparql(req: SparqlRequest):
         raise HTTPException(503, str(exc))
     except Exception as exc:
         raise HTTPException(400, f"SPARQL failed: {exc}")
+
+
+@app.post("/api/semantic/reason")
+async def semantic_reason(req: ReasonRequest):
+    """Infer edges (OWL 2 RL subset, with provenance) and validate the graph."""
+    from reasoning import analyze
+    try:
+        return analyze(req.graph)
+    except Exception as exc:
+        raise HTTPException(400, f"Reasoning failed: {exc}")
+
+
+@app.get("/api/vocabulary/status")
+async def vocabulary_status():
+    """Wikidata relation dictionary and embedding index status."""
+    import vocab_rag
+    return vocab_rag.status()
+
+
+@app.post("/api/vocabulary/search")
+async def vocabulary_search(req: VocabSearchRequest):
+    """Retrieve Wikidata properties for a relation phrase."""
+    import vocab_rag
+    k = max(1, min(req.k, 20))
+    return {"results": await asyncio.to_thread(vocab_rag.search, req.query, k)}
+
+
+@app.post("/api/vocabulary/link")
+async def vocabulary_link(req: VocabLinkRequest):
+    """Normalize a graph and link its custom relations to Wikidata properties."""
+    import vocab_rag
+    from vocabulary import normalize_graph
+    from crew.ollama_pipeline import quick_chat
+    graph = normalize_graph(dict(req.graph, edges=[dict(e) for e in req.graph.get("edges", [])]))
+    summary = await vocab_rag.link_relations(graph, quick_chat if req.use_llm else None)
+    normalize_graph(graph)
+    return {"graph": graph, "summary": summary}
+
+
+@app.post("/api/entities/link")
+async def entities_link(req: EntityLinkRequest):
+    """Attach Wikidata item ids to the graph's nodes (best effort)."""
+    from entity_link import link_entities
+    from crew.ollama_pipeline import quick_chat
+    graph = dict(req.graph, nodes=[dict(n) for n in req.graph.get("nodes", [])])
+    summary = await link_entities(graph, quick_chat, req.topic)
+    return {"graph": graph, "summary": summary}
+
+
+@app.get("/api/knowledge/stats")
+async def knowledge_stats():
+    from knowledge import get_kb
+    kb = get_kb()
+    return {**kb.stats(), "sources": kb.sources()}
+
+
+@app.post("/api/knowledge/ingest")
+async def knowledge_ingest(req: KnowledgeIngestRequest):
+    """Merge a graph into the knowledge base (entity resolution + provenance)."""
+    from knowledge import get_kb
+    result = await asyncio.to_thread(get_kb().ingest, req.graph, req.topic)
+    result.pop("id_map", None)
+    return result
+
+
+@app.get("/api/knowledge/graph")
+async def knowledge_graph(limit: int = 2000):
+    from knowledge import get_kb
+    return get_kb().graph(limit=max(1, min(limit, 10000)))
+
+
+@app.post("/api/knowledge/subgraph")
+async def knowledge_subgraph(req: KnowledgeSubgraphRequest):
+    """Nodes matching `query` (label/alias/Q-id) or `node_ids`, plus `hops` neighbours."""
+    from knowledge import get_kb
+    kb = get_kb()
+    seeds = list(req.node_ids)
+    if not seeds and req.query.strip():
+        seeds = [r["id"] for r in kb.search(req.query)]
+    if not seeds:
+        return {"nodes": [], "edges": [], "seeds": []}
+    sub = kb.neighbourhood(seeds, hops=max(0, min(req.hops, 4)))
+    return {**sub, "seeds": seeds}
+
+
+@app.delete("/api/knowledge/sources/{source_id}")
+async def knowledge_delete_source(source_id: str):
+    """Undo one ingest: remove what only that source contributed."""
+    from knowledge import get_kb
+    return get_kb().delete_source(source_id)
+
+
+def _explore_graph(graph: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if graph is not None:
+        return graph
+    from knowledge import get_kb
+    return get_kb().graph(limit=10000)
+
+
+@app.post("/api/explore/paths")
+async def explore_paths(req: ExplorePathsRequest):
+    """Paths between two nodes (asserted + inferred), each step with its evidence."""
+    from explore import find_paths
+
+    def run():
+        return find_paths(_explore_graph(req.graph), req.source, req.target,
+                          req.max_hops, req.max_paths, req.relations or None,
+                          req.directed, req.include_inferred)
+    return await asyncio.to_thread(run)
+
+
+@app.post("/api/explore/facts")
+async def explore_facts(req: ExploreFactsRequest):
+    """Facts about a node (asserted + inferred), with sources and derivations."""
+    from explore import node_facts
+    if req.direction not in ("in", "out", "both"):
+        raise HTTPException(400, "direction must be in, out or both")
+
+    def run():
+        return node_facts(_explore_graph(req.graph), req.node, req.relation,
+                          req.direction, req.include_inferred)
+    return await asyncio.to_thread(run)
 
 
 @app.post("/api/semantic/shacl")
